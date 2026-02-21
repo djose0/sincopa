@@ -1,105 +1,13 @@
-import { useState, useEffect, useRef, useCallback } from "react";
-import { Plus, X, Pencil, Check, Trash2, Archive, Zap, Home, List, Settings, Layers, LogOut, Users, Copy, UserPlus, RefreshCw } from "lucide-react";
+import { useState, useEffect, useRef } from "react";
+import { Plus, X, Pencil, Check, Trash2, Archive, Zap, Home, List, Settings, Layers, LogOut, Copy, RefreshCw } from "lucide-react";
+import { createClient } from "@supabase/supabase-js";
 
-// ─────────────────────────────────────────────────────────────────────────────
-// ⚙️  SUPABASE CONFIG — reemplaza estos dos valores con los tuyos
-//     Settings → API en tu proyecto de Supabase
-// ─────────────────────────────────────────────────────────────────────────────
 const SUPABASE_URL  = "https://fjxuijmagvrmavtrpqix.supabase.co";
 const SUPABASE_ANON = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImZqeHVpam1hZ3ZybWF2dHJwcWl4Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzE1NDc4MzksImV4cCI6MjA4NzEyMzgzOX0.e6l885GBtxAO59-4PjoTgEaBc9DkIa3dzyOF63Edfv0";
 
-// ─── SUPABASE CLIENT (sin dependencias externas) ──────────────────────────────
-function createSupabase(url, key) {
-  // Supabase nuevo formato: sb_publishable_... usa Authorization: Bearer
-  // Formato clásico: eyJ... usa apikey + Authorization
-  const isLegacy = key.startsWith("eyJ");
-  const headers = isLegacy
-    ? { "Content-Type": "application/json", "apikey": key, "Authorization": `Bearer ${key}` }
-    : { "Content-Type": "application/json", "apikey": key, "Authorization": `Bearer ${key}` };
-
-  async function req(path, opts = {}) {
-    const r = await fetch(url + path, { headers: { ...headers, ...opts.headers }, ...opts });
-    const data = await r.json().catch(() => ({}));
-    return { data, error: r.ok ? null : data };
-  }
-
-  // Auth
-  const auth = {
-    async signUp(email, password, meta = {}) {
-      return req("/auth/v1/signup", { method:"POST", body: JSON.stringify({ email, password, data: meta }) });
-    },
-    async signIn(email, password) {
-      return req("/auth/v1/token?grant_type=password", { method:"POST", body: JSON.stringify({ email, password }) });
-    },
-    async signOut(token) {
-      return req("/auth/v1/logout", { method:"POST", headers: { "Authorization": `Bearer ${token}` } });
-    },
-    async getUser(token) {
-      return req("/auth/v1/user", { headers: { "Authorization": `Bearer ${token}` } });
-    },
-    async updateUser(token, meta) {
-      return req("/auth/v1/user", { method:"PUT", headers: { "Authorization": `Bearer ${token}` }, body: JSON.stringify({ data: meta }) });
-    },
-  };
-
-  // DB
-  function db(table) {
-    return {
-      async select(query = "*", filters = {}) {
-        let path = `/rest/v1/${table}?select=${query}`;
-        for (const [k, v] of Object.entries(filters)) path += `&${k}=eq.${v}`;
-        return req(path);
-      },
-      async insert(token, row) {
-        return req(`/rest/v1/${table}`, {
-          method: "POST",
-          headers: { "Authorization": `Bearer ${token}`, "Prefer": "return=representation" },
-          body: JSON.stringify(row),
-        });
-      },
-      async upsert(token, row, onConflict) {
-        return req(`/rest/v1/${table}?on_conflict=${onConflict}`, {
-          method: "POST",
-          headers: { "Authorization": `Bearer ${token}`, "Prefer": "return=representation,resolution=merge-duplicates" },
-          body: JSON.stringify(row),
-        });
-      },
-      async update(token, row, filters = {}) {
-        let path = `/rest/v1/${table}?`;
-        for (const [k, v] of Object.entries(filters)) path += `${k}=eq.${v}&`;
-        return req(path, {
-          method: "PATCH",
-          headers: { "Authorization": `Bearer ${token}`, "Prefer": "return=representation" },
-          body: JSON.stringify(row),
-        });
-      },
-      async delete(token, filters = {}) {
-        let path = `/rest/v1/${table}?`;
-        for (const [k, v] of Object.entries(filters)) path += `${k}=eq.${v}&`;
-        return req(path, { method: "DELETE", headers: { "Authorization": `Bearer ${token}` } });
-      },
-    };
-  }
-
-  // Realtime (polling fallback — works without websocket setup)
-  function realtime(table, householdId, token, callback) {
-    let lastCheck = Date.now();
-    const poll = async () => {
-      const ts = new Date(lastCheck).toISOString();
-      lastCheck = Date.now();
-      const r = await req(`/rest/v1/${table}?household_id=eq.${householdId}&updated_at=gte.${ts}`, {
-        headers: { "Authorization": `Bearer ${token}` }
-      });
-      if (r.data && r.data.length > 0) callback(r.data);
-    };
-    const interval = setInterval(poll, 5000);
-    return () => clearInterval(interval);
-  }
-
-  return { auth, db, realtime };
-}
-
-const SB = createSupabase(SUPABASE_URL, SUPABASE_ANON);
+const SB = createClient(SUPABASE_URL, SUPABASE_ANON, {
+  auth: { persistSession: true, autoRefreshToken: true, detectSessionInUrl: true }
+});
 
 // ─── TOKENS ───────────────────────────────────────────────────────────────────
 const C = {
@@ -257,18 +165,17 @@ function AuthScreen({ onAuth }) {
     setLoading(true); setError("");
     try {
       if (mode === "register") {
-        const { data, error: e } = await SB.auth.signUp(email, password, { name, avatar });
-        if (e) { setError(e.msg || e.message || "Error al registrarse"); setLoading(false); return; }
-        // Auto sign-in after register
-        const { data: d2, error: e2 } = await SB.auth.signIn(email, password);
-        if (e2) { setError("Registro OK, ahora inicia sesión"); setMode("login"); setLoading(false); return; }
-        saveSession({ token: d2.access_token, user: d2.user });
-        onAuth({ token: d2.access_token, user: d2.user });
+        const { data, error: e } = await SB.auth.signUp({ email, password, options: { data: { name, avatar } } });
+        if (e) { setError(e.message || "Error al registrarse"); setLoading(false); return; }
+        setError(""); 
+        setMode("login");
+        setError("¡Cuenta creada! Revisa tu email para confirmar y luego inicia sesión.");
       } else {
-        const { data, error: e } = await SB.auth.signIn(email, password);
-        if (e) { setError(e.msg || e.message || "Email o contraseña incorrectos"); setLoading(false); return; }
-        saveSession({ token: data.access_token, user: data.user });
-        onAuth({ token: data.access_token, user: data.user });
+        const { data, error: e } = await SB.auth.signInWithPassword({ email, password });
+        if (e) { setError(e.message || "Email o contraseña incorrectos"); setLoading(false); return; }
+        const s = { token: data.session.access_token, user: data.user };
+        saveSession(s);
+        onAuth(s);
       }
     } catch(err) {
       setError("Error de conexión. Verifica tu configuración de Supabase.");
@@ -366,11 +273,11 @@ function HouseholdScreen({ session, onHousehold, onSignOut }) {
       total_savings_accum: 0,
       withdrawn: 0,
     };
-    const { data, error: e } = await SB.db("households").insert(session.token, row);
-    if (e) { setError("Error al crear el hogar. Verifica tu Supabase."); setLoading(false); return; }
+    const { data, error: e } = await SB.from("households").insert(row).select();
+    if (e) { setError("Error al crear el hogar: " + e.message); setLoading(false); return; }
     const household = Array.isArray(data) ? data[0] : data;
     // Add self as member
-    await SB.db("household_members").insert(session.token, {
+    await SB.from("household_members").insert({
       household_id: household.id,
       user_id: session.user.id,
       name: session.user.user_metadata?.name || "Usuario",
@@ -384,13 +291,13 @@ function HouseholdScreen({ session, onHousehold, onSignOut }) {
   async function joinHousehold() {
     if (!joinCode) { setError("Ingresa el código de invitación"); return; }
     setLoading(true); setError("");
-    const { data, error: e } = await SB.db("households").select("*", { invite_code: joinCode.trim().toUpperCase() });
+    const { data, error: e } = await SB.from("households").select("*").eq("invite_code", joinCode.trim().toUpperCase());
     if (e || !data || data.length===0) { setError("Código no válido. Pídele el código a tu pareja."); setLoading(false); return; }
     const household = data[0];
     // Check not already member
-    const { data: existing } = await SB.db("household_members").select("*", { household_id: household.id, user_id: session.user.id });
+    const { data: existing } = await SB.from("household_members").select("*").eq("household_id", household.id, user_id: session.user.id);
     if (!existing || existing.length===0) {
-      await SB.db("household_members").insert(session.token, {
+      await SB.from("household_members").insert({
         household_id: household.id,
         user_id: session.user.id,
         name: session.user.user_metadata?.name || "Usuario",
@@ -1222,55 +1129,54 @@ export default function Sincopa() {
 
   // ── INIT: restore session or grab token from URL (after email confirm) ──
   useEffect(() => {
-    // Check if Supabase redirected back with tokens in the URL hash
-    const hash = window.location.hash;
-    if (hash && hash.includes("access_token=")) {
-      const params = new URLSearchParams(hash.replace("#", ""));
-      const token = params.get("access_token");
-      if (token) {
-        // Clear the hash from URL
-        window.history.replaceState(null, "", window.location.pathname);
-        SB.auth.getUser(token).then(({ data, error }) => {
-          if (error || !data?.id) { setScreen("auth"); return; }
-          const s = { token, user: data };
-          saveSession(s);
-          setSession(s);
-          setScreen("loadingHousehold");
-          loadHousehold(s);
-        });
-        return;
-      }
-    }
+    // Official Supabase SDK handles session persistence and URL tokens automatically
+    SB.auth.getSession().then(({ data: { session } }) => {
+      if (!session) { setScreen("auth"); return; }
+      const s = { token: session.access_token, user: session.user };
+      saveSession(s);
+      setSession(s);
+      setScreen("loadingHousehold");
+      loadHousehold(s);
+    });
 
-    const s = loadSession();
-    if (s?.token) {
-      SB.auth.getUser(s.token).then(({ data, error }) => {
-        if (error || !data?.id) { clearSession(); setScreen("auth"); return; }
+    // Listen for auth state changes (handles email confirmation redirect)
+    const { data: { subscription } } = SB.auth.onAuthStateChange((event, session) => {
+      if (event === "SIGNED_IN" && session) {
+        const s = { token: session.access_token, user: session.user };
+        saveSession(s);
         setSession(s);
         setScreen("loadingHousehold");
         loadHousehold(s);
-      });
-    } else {
-      setScreen("auth");
-    }
+      }
+      if (event === "SIGNED_OUT") {
+        clearSession();
+        setScreen("auth");
+      }
+    });
+
+    return () => subscription.unsubscribe();
   }, []);
 
   async function loadHousehold(s) {
-    // Find household where user is a member
-    const { data: memberships } = await SB.db("household_members").select("*", { user_id: s.user.id });
-    if (!memberships || memberships.length === 0) { setScreen("household"); return; }
-    const hid = memberships[0].household_id;
-    const { data: households } = await SB.db("households").select("*", { id: hid });
-    if (!households || households.length === 0) { setScreen("household"); return; }
-    const hh = households[0];
-    setHousehold(hh);
-    await loadAllMembers(hid, s);
-    await loadAppState(hh, s);
-    setScreen("app");
+    try {
+      const { data: memberships } = await SB.from("household_members").select("*").eq("user_id", s.user.id);
+      if (!memberships || memberships.length === 0) { setScreen("household"); return; }
+      const hid = memberships[0].household_id;
+      const { data: households } = await SB.from("households").select("*").eq("id", hid);
+      if (!households || households.length === 0) { setScreen("household"); return; }
+      const hh = households[0];
+      setHousehold(hh);
+      await loadAllMembers(hid, s);
+      await loadAppState(hh, s);
+      setScreen("app");
+    } catch(err) {
+      console.error("loadHousehold error:", err);
+      setScreen("household");
+    }
   }
 
   async function loadAllMembers(hid, s) {
-    const { data } = await SB.db("household_members").select("*", { household_id: hid });
+    const { data } = await SB.from("household_members").select("*").eq("household_id", hid);
     if (data) {
       const map = {};
       data.forEach(m => { map[m.user_id] = m; });
@@ -1282,15 +1188,14 @@ export default function Sincopa() {
   async function loadAppState(hh, s) {
     // Load all data from Supabase tables for this household
     const hid = hh.id;
-    const token = s.token;
-
+    
     const [recR, txR, commitR, extrasR, histR, stateR] = await Promise.all([
-      SB.db("recurring").select("*", { household_id: hid }),
-      SB.db("transactions").select("*", { household_id: hid }),
-      SB.db("commitments").select("*", { household_id: hid }),
-      SB.db("extras").select("*", { household_id: hid }),
-      SB.db("history").select("*", { household_id: hid }),
-      SB.db("household_state").select("*", { household_id: hid }),
+      SB.from("recurring").select("*").eq("household_id", hid),
+      SB.from("transactions").select("*").eq("household_id", hid),
+      SB.from("commitments").select("*").eq("household_id", hid),
+      SB.from("extras").select("*").eq("household_id", hid),
+      SB.from("history").select("*").eq("household_id", hid),
+      SB.from("household_state").select("*").eq("household_id", hid),
     ]);
 
     if (recR.data)    setRecurring(recR.data);
@@ -1333,7 +1238,7 @@ export default function Sincopa() {
     const newCarry = Math.max(0, prevBal);
 
     // Archive old month
-    await SB.db("history").insert(s.token, {
+    await SB.from("history").insert({
       household_id: hh.id, year: st.current_year, month: st.current_month,
       salary: st.salary, rule: st.rule,
     });
@@ -1343,22 +1248,22 @@ export default function Sincopa() {
       if ((c.type==="deferred"||c.type==="loan") && c.quotas!=null) {
         const newPaid = Math.min((c.paid||0)+elapsed, c.quotas);
         if (newPaid >= c.quotas) {
-          await SB.db("commitments").delete(s.token, { id: c.id });
+          await SB.from("commitments").delete().eq("id", c.id);
         } else {
-          await SB.db("commitments").update(s.token, { paid: newPaid }, { id: c.id });
+          await SB.from("commitments").update({ paid: newPaid }).eq("id", c.id);
         }
       }
     }
 
     // Clear transactions, update state
-    await SB.db("transactions").delete(s.token, { household_id: hh.id });
-    await SB.db("household_state").update(s.token, {
+    await SB.from("transactions").delete().eq("household_id", hh.id);
+    await SB.from("household_state").update({
       current_year: now.getFullYear(),
       current_month: now.getMonth()+1,
       total_savings_accum: newAccum,
       withdrawn: 0,
       balance_carryover: newCarry,
-    }, { household_id: hh.id });
+    }).eq("household_id", hh.id);
 
     setTransactions([]);
     setTotalSavingsAccum(newAccum);
@@ -1377,10 +1282,10 @@ export default function Sincopa() {
     const interval = setInterval(async () => {
       await loadAllMembers(household.id, session);
       const [recR, txR, commitR, extrasR] = await Promise.all([
-        SB.db("recurring").select("*", { household_id: household.id }),
-        SB.db("transactions").select("*", { household_id: household.id }),
-        SB.db("commitments").select("*", { household_id: household.id }),
-        SB.db("extras").select("*", { household_id: household.id }),
+        SB.from("recurring").select("*").eq("household_id", household.id),
+        SB.from("transactions").select("*").eq("household_id", household.id),
+        SB.from("commitments").select("*").eq("household_id", household.id),
+        SB.from("extras").select("*").eq("household_id", household.id),
       ]);
       if (recR.data)    setRecurring(recR.data);
       if (txR.data)     setTransactions(txR.data);
@@ -1401,7 +1306,7 @@ export default function Sincopa() {
       total_savings_accum: totalSavingsAccum, withdrawn, balance_carryover: balanceCarryover,
       ...overrides,
     };
-    await SB.db("household_state").upsert(session.token, st, "household_id");
+    await SB.from("household_state").upsert(st, { onConflict: "household_id" });
   }
 
   // ── AUTH ──
@@ -1419,7 +1324,7 @@ export default function Sincopa() {
   }
 
   async function handleSignOut() {
-    if (session?.token) await SB.auth.signOut(session.token);
+    await SB.auth.signOut();
     clearSession();
     setSession(null);
     setHousehold(null);
@@ -1453,6 +1358,7 @@ export default function Sincopa() {
 
   // ── ACTIONS ──
   const uid = () => session?.user?.id;
+  const getToken = async () => { const { data } = await SB.auth.getSession(); return data.session?.access_token; };
 
   const actions = {
     setSalary: async v => { setSalary(v); await saveState({ salary: parseFloat(v)||0 }); },
@@ -1466,39 +1372,39 @@ export default function Sincopa() {
       if (!e.label||!e.amount) return;
       const row = { id: Date.now(), household_id: household.id, label: e.label, amount: +e.amount, date: todayStr(), user_id: uid() };
       setExtras(p=>[...p,row]);
-      await SB.db("extras").insert(session.token, row);
+      await SB.from("extras").insert(row);
     },
     delExtra: async id => {
       setExtras(p=>p.filter(e=>e.id!==id));
-      await SB.db("extras").delete(session.token, { id, household_id: household.id });
+      await SB.from("extras").delete().eq("id", id);
     },
     saveExtra: async (id, ed) => {
       setExtras(p=>p.map(e=>e.id===id?{...e,...ed,amount:+ed.amount}:e));
-      await SB.db("extras").update(session.token, { label:ed.label, amount:+ed.amount }, { id });
+      await SB.from("extras").update({ label:ed.label, amount:+ed.amount }).eq("id", id);
     },
     toggleRec: async id => {
       setRecurring(p=>p.map(r=>r.id===id?{...r,active:!r.active}:r));
       const r = recurring.find(x=>x.id===id);
-      if (r) await SB.db("recurring").update(session.token, { active: !r.active }, { id });
+      if (r) await SB.from("recurring").update({ active: !r.active }).eq("id", id);
     },
     delRec: async id => {
       setRecurring(p=>p.filter(r=>r.id!==id));
-      await SB.db("recurring").delete(session.token, { id, household_id: household.id });
+      await SB.from("recurring").delete().eq("id", id);
     },
     saveRec: async (id, ed) => {
       setRecurring(p=>p.map(r=>r.id===id?{...r,...ed,amount:+ed.amount}:r));
-      await SB.db("recurring").update(session.token, { icon:ed.icon, label:ed.label, amount:+ed.amount }, { id });
+      await SB.from("recurring").update({ icon:ed.icon, label:ed.label, amount:+ed.amount }).eq("id", id);
     },
     addRec: async r => {
       if (!r.label) return;
       const row = { id: Date.now(), household_id: household.id, icon:r.icon||"📋", label:r.label, amount:+r.amount||0, category:"needs", active:true, date:todayStr(), payments:[], user_id:uid() };
       setRecurring(p=>[...p,row]);
-      await SB.db("recurring").insert(session.token, row);
+      await SB.from("recurring").insert(row);
     },
     addFromTpl: async tpl => {
       const row = { id: Date.now(), household_id: household.id, icon:tpl.icon, label:tpl.label, amount:0, category:"needs", active:true, date:todayStr(), payments:[], user_id:uid() };
       setRecurring(p=>[...p,row]);
-      await SB.db("recurring").insert(session.token, row);
+      await SB.from("recurring").insert(row);
     },
     markRecPaid: async id => {
       const t = todayStr();
@@ -1513,7 +1419,7 @@ export default function Sincopa() {
         const payments = [...(r.payments||[])];
         if (!payments.some(p=>p.date===t)) {
           payments.push({date:t,user_id:uid()});
-          await SB.db("recurring").update(session.token, { payments }, { id });
+          await SB.from("recurring").update({ payments }).eq("id", id);
         }
       }
     },
@@ -1522,31 +1428,31 @@ export default function Sincopa() {
       const category = cat==="savings"?"savings":cat==="auto"?autoCat(tx.name):cat;
       const row = { id: Date.now(), household_id: household.id, name:tx.name, amount:+tx.amount, category, date:todayStr(), user_id:uid() };
       setTransactions(p=>[...p,row]);
-      await SB.db("transactions").insert(session.token, row);
+      await SB.from("transactions").insert(row);
       reset({name:"",amount:""});
     },
     delTx: async id => {
       setTransactions(p=>p.filter(t=>t.id!==id));
-      await SB.db("transactions").delete(session.token, { id, household_id: household.id });
+      await SB.from("transactions").delete().eq("id", id);
     },
     saveTx: async (id, ed) => {
       setTransactions(p=>p.map(t=>t.id===id?{...t,...ed,amount:+ed.amount}:t));
-      await SB.db("transactions").update(session.token, { name:ed.name, amount:+ed.amount, category:ed.category }, { id });
+      await SB.from("transactions").update({ name:ed.name, amount:+ed.amount, category:ed.category }).eq("id", id);
     },
     addCommitment: async c => {
       const row = { ...c, household_id: household.id, user_id: uid() };
       const ex = commitments.find(x=>x.id===c.id);
       if (ex) {
         setCommitments(p=>p.map(x=>x.id===c.id?row:x));
-        await SB.db("commitments").update(session.token, row, { id: c.id });
+        await SB.from("commitments").update(row).eq("id", c.id);
       } else {
         setCommitments(p=>[...p,row]);
-        await SB.db("commitments").insert(session.token, row);
+        await SB.from("commitments").insert(row);
       }
     },
     delCommitment: async id => {
       setCommitments(p=>p.filter(c=>c.id!==id));
-      await SB.db("commitments").delete(session.token, { id, household_id: household.id });
+      await SB.from("commitments").delete().eq("id", id);
     },
     markCommitmentPaid: async id => {
       const t = todayStr();
@@ -1561,7 +1467,7 @@ export default function Sincopa() {
         const payments = [...(c.payments||[])];
         if (!payments.some(p=>p.date===t)) {
           payments.push({date:t,user_id:uid()});
-          await SB.db("commitments").update(session.token, { payments }, { id });
+          await SB.from("commitments").update({ payments }).eq("id", id);
         }
       }
     },
