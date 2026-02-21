@@ -288,15 +288,22 @@ function HouseholdScreen({ session, onHousehold, onSignOut }) {
     setLoading(false);
   }
 
-  async function joinHousehold() {
+ async function joinHousehold() {
     if (!joinCode) { setError("Ingresa el código de invitación"); return; }
     setLoading(true); setError("");
     const { data, error: e } = await SB.from("households").select("*").eq("invite_code", joinCode.trim().toUpperCase());
     if (e || !data || data.length===0) { setError("Código no válido. Pídele el código a tu pareja."); setLoading(false); return; }
     const household = data[0];
+    
     // Check not already member
-const { data: existing } = await SB.from("household_members").select("*").eq("household_id", household.id).eq("user_id", session.user.id);
-    await SB.from("household_members").insert({
+    const { data: existing } = await SB.from("household_members")
+      .select("*")
+      .eq("household_id", household.id)
+      .eq("user_id", session.user.id);
+    
+    // Solo insertamos si el usuario no es miembro aún
+    if (!existing || existing.length === 0) {
+      await SB.from("household_members").insert({
         household_id: household.id,
         user_id: session.user.id,
         name: session.user.user_metadata?.name || "Usuario",
@@ -304,6 +311,7 @@ const { data: existing } = await SB.from("household_members").select("*").eq("ho
         role: "member",
       });
     }
+
     onHousehold(household);
     setLoading(false);
   }
