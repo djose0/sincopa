@@ -295,9 +295,8 @@ function HouseholdScreen({ session, onHousehold, onSignOut }) {
     if (e || !data || data.length===0) { setError("Código no válido. Pídele el código a tu pareja."); setLoading(false); return; }
     const household = data[0];
     // Check not already member
-    const { data: existing } = await SB.from("household_members").select("*").eq("household_id", household.id, user_id: session.user.id);
-    if (!existing || existing.length===0) {
-      await SB.from("household_members").insert({
+const { data: existing } = await SB.from("household_members").select("*").eq("household_id", household.id).eq("user_id", session.user.id);
+    await SB.from("household_members").insert({
         household_id: household.id,
         user_id: session.user.id,
         name: session.user.user_metadata?.name || "Usuario",
