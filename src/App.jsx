@@ -1220,28 +1220,8 @@ export default function Sincopa() {
 
   const saveTimeout = useRef(null);
 
-  // ── INIT: restore session or grab token from URL (after email confirm) ──
+  // ── INIT: restore session ──
   useEffect(() => {
-    // Check if Supabase redirected back with tokens in the URL hash
-    const hash = window.location.hash;
-    if (hash && hash.includes("access_token=")) {
-      const params = new URLSearchParams(hash.replace("#", ""));
-      const token = params.get("access_token");
-      if (token) {
-        // Clear the hash from URL
-        window.history.replaceState(null, "", window.location.pathname);
-        SB.auth.getUser(token).then(({ data, error }) => {
-          if (error || !data?.id) { setScreen("auth"); return; }
-          const s = { token, user: data };
-          saveSession(s);
-          setSession(s);
-          setScreen("loadingHousehold");
-          loadHousehold(s);
-        });
-        return;
-      }
-    }
-
     const s = loadSession();
     if (s?.token) {
       SB.auth.getUser(s.token).then(({ data, error }) => {
