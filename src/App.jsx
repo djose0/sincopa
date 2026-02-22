@@ -895,29 +895,6 @@ function GastosScreen({ data, derived, actions, members, myProfile }) {
   );
 }
 
-  return (
-    <div style={{padding:"0 16px 100px"}}>
-      <div style={{padding:"20px 0 14px"}}>
-        <div style={{fontFamily:FD,fontSize:24,fontWeight:800,color:C.ink}}>Gastos del mes</div>
-        <div style={{fontSize:12,color:C.muted,fontFamily:FB}}>Necesidades · Deseos · Ahorros</div>
-      </div>
-
-      <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12,marginBottom:14}}>
-        {[{label:"Necesidades",spent:needsSpent,budget:needsBudget,color:C.needs},{label:"Deseos",spent:wantsOnly,budget:Math.max(0,wantsBudget-commitmentTotal),color:C.wants}].map((item,i)=>{
-          const left=item.budget-item.spent, over=left<0;
-          return (
-            <Card key={i}>
-              <div style={{fontSize:10,color:item.color,fontWeight:700,letterSpacing:0.8,textTransform:"uppercase",fontFamily:FB,marginBottom:4}}>{item.label}</div>
-              <div style={{fontFamily:FM,fontSize:16,fontWeight:800,color:over?C.red:C.ink,marginBottom:5}}>{over?"-"+fmt(Math.abs(left)):fmt(left)}<span style={{fontSize:11,fontWeight:400,color:C.muted}}> restante</span></div>
-              <Bar value={item.spent} max={item.budget||1} color={item.color}/>
-              <div style={{fontSize:10,color:C.muted,marginTop:4,fontFamily:FB}}>{fmt(item.spent)} / {fmt(item.budget)}</div>
-            </Card>
-          );
-        })}
-      </div>
-
-
-
 // ═══════════════ COMPROMISOS SCREEN ══════════════════════════════════════════
 function CompromisosScreen({ data, derived, actions, members }) {
   const { commitments } = data;
