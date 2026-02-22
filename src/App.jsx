@@ -678,20 +678,17 @@ function HomeScreen({ derived, members, onHistory, onEmergency }) {
 
       {fourthActive&&(
         <Card style={{marginBottom:14,background:C.fourth+"12",border:`1px solid ${C.fourth}25`}}>
-          <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:6}}>
+          <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start"}}>
             <div>
               <div style={{fontSize:10,color:C.fourth,fontWeight:700,letterSpacing:0.8,textTransform:"uppercase",fontFamily:FB,marginBottom:2}}>{fourthName}</div>
-              <div style={{fontFamily:FD,fontSize:22,fontWeight:800,color:C.fourth}}>{fmt(fourthBudget)}</div>
-              <div style={{fontSize:10,color:C.muted,fontFamily:FB,marginTop:1}}>reservado este mes</div>
+              <div style={{fontFamily:FD,fontSize:28,fontWeight:800,color:C.fourth}}>{fmt(fourthBudget + txFourthIn - txFourthOut)}</div>
+              <div style={{fontSize:11,color:C.muted,fontFamily:FB,marginTop:2}}>guardado en el fondo</div>
             </div>
-            <div style={{textAlign:"right"}}>
-              {txFourthIn>0&&<div style={{fontSize:12,color:C.fourth,fontFamily:FB,fontWeight:600}}>+{fmt(txFourthIn)} aportado</div>}
-              {txFourthOut>0&&<div style={{fontSize:12,color:C.red,fontFamily:FB,fontWeight:600}}>-{fmt(txFourthOut)} usado</div>}
+            <div style={{textAlign:"right",display:"flex",flexDirection:"column",gap:3,marginTop:4}}>
+              <div style={{fontSize:11,color:C.muted,fontFamily:FB}}>{fmt(fourthBudget)} automático</div>
+              {txFourthIn>0&&<div style={{fontSize:11,color:C.fourth,fontFamily:FB,fontWeight:600}}>+{fmt(txFourthIn)} extra</div>}
+              {txFourthOut>0&&<div style={{fontSize:11,color:C.red,fontFamily:FB,fontWeight:600}}>−{fmt(txFourthOut)} usado</div>}
             </div>
-          </div>
-          <Bar value={txFourthIn} max={fourthBudget||1} color={C.fourth} h={6}/>
-          <div style={{fontSize:10,color:C.muted,fontFamily:FB,marginTop:4}}>
-            {fmt(fourthBudget - txFourthIn)} sin asignar · {fmt(Math.max(0, txFourthIn - txFourthOut))} disponible en fondo
           </div>
         </Card>
       )}
