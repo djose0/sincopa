@@ -1303,117 +1303,106 @@ function HogarScreen({ data, derived, actions, members, session, household }) {
   }
 
   // ── ROOMIES VIEW ──
-  const SHARED_SERVICES = ["renta","internet","luz","agua","gas"];
-  const [splits, setSplits] = useState({});
-  const [splitActive, setSplitActive] = useState({});
+  const [splitTx, setSplitTx] = useState({}); // { tx.id: bool } — local toggle for "dividir"
 
   const houseTxs = transactions.filter(t=>t.for_house&&t.category!=="savings"&&t.category!=="savings_out"&&t.category!=="fourth"&&t.category!=="fourth_out");
   const houseRec = recurring.filter(r=>r.for_house!==false&&r.active);
   const totalHouse = [...houseTxs,...houseRec].reduce((s,t)=>s+(+t.amount||0),0);
-  const memberCount = memberList.length||1;
-
-  // Shared services from recurring
-  const sharedSvcs = houseRec.filter(r=>SHARED_SERVICES.some(k=>r.label?.toLowerCase().includes(k)));
 
   return (
     <div style={{padding:"0 16px 100px"}}>
       <div style={{padding:"20px 0 14px"}}>
         <div style={{fontFamily:FD,fontSize:24,fontWeight:800,color:C.ink}}>Hogar</div>
-        <div style={{fontSize:12,color:C.muted,fontFamily:FB}}>Gastos compartidos</div>
+        <div style={{fontSize:12,color:C.muted,fontFamily:FB}}>Gastos compartidos del mes</div>
       </div>
 
-      {/* Total house summary */}
+      {/* Total */}
       <Card style={{marginBottom:14,background:C.commit+"08",border:`1px solid ${C.commit}20`}}>
-        <div style={{display:"flex",justifyContent:"space-between",alignItems:"center"}}>
-          <div>
-            <div style={{fontSize:10,color:C.commit,fontWeight:700,textTransform:"uppercase",letterSpacing:0.8,fontFamily:FB,marginBottom:2}}>Total casa este mes</div>
-            <div style={{fontFamily:FD,fontSize:28,fontWeight:800,color:C.commit}}>{fmt(totalHouse)}</div>
-          </div>
-          <div style={{textAlign:"right"}}>
-            <div style={{fontSize:11,color:C.muted,fontFamily:FB}}>Partes iguales</div>
-            <div style={{fontFamily:FM,fontSize:20,fontWeight:800,color:C.commit}}>{fmt(totalHouse/memberCount)}</div>
-            <div style={{fontSize:10,color:C.muted,fontFamily:FB}}>por persona</div>
-          </div>
-        </div>
+        <div style={{fontSize:10,color:C.commit,fontWeight:700,textTransform:"uppercase",letterSpacing:0.8,fontFamily:FB,marginBottom:4}}>Total gastado en casa</div>
+        <div style={{fontFamily:FD,fontSize:32,fontWeight:800,color:C.commit}}>{fmt(totalHouse)}</div>
+        {houseRec.length>0&&<div style={{fontSize:11,color:C.muted,fontFamily:FB,marginTop:4}}>{fmt(houseRec.reduce((s,r)=>s+(+r.amount),0))} recurrentes · {fmt(houseTxs.reduce((s,t)=>s+t.amount,0))} puntuales</div>}
       </Card>
 
-      {/* Per-member spending */}
+      {/* Per-member totals */}
       <div style={{marginBottom:14}}>
-        <div style={{fontSize:11,color:C.muted,fontWeight:700,textTransform:"uppercase",letterSpacing:0.8,fontFamily:FB,marginBottom:8}}>Aportaciones por persona</div>
+        <div style={{fontSize:11,color:C.muted,fontWeight:700,textTransform:"uppercase",letterSpacing:0.8,fontFamily:FB,marginBottom:8}}>Cuánto ha puesto cada quien</div>
         {memberList.map(m=>{
-          const spent = [...houseTxs.filter(t=>t.user_id===m.user_id),...houseRec.filter(r=>r.user_id===m.user_id)].reduce((s,t)=>s+(+t.amount||0),0);
-          const expected = totalHouse/memberCount;
-          const diff = spent - expected;
+          const spent = [
+            ...houseTxs.filter(t=>t.user_id===m.user_id),
+            ...houseRec.filter(r=>r.user_id===m.user_id)
+          ].reduce((s,t)=>s+(+t.amount||0),0);
+          const pct = totalHouse>0 ? Math.round(spent/totalHouse*100) : 0;
           return (
             <Card key={m.user_id} style={{marginBottom:8,padding:"13px 16px"}}>
-              <div style={{display:"flex",alignItems:"center",gap:10}}>
+              <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:8}}>
                 <Avatar emoji={m.avatar} name={m.name} size={36}/>
                 <div style={{flex:1}}>
                   <div style={{fontFamily:FB,fontSize:14,fontWeight:700,color:C.ink}}>{m.name}</div>
-                  <div style={{fontSize:11,color:C.muted,fontFamily:FB,marginTop:1}}>Ha puesto: {fmt(spent)}</div>
+                  <div style={{fontSize:11,color:C.muted,fontFamily:FB}}>{pct}% del total</div>
                 </div>
-                <div style={{textAlign:"right"}}>
-                  <div style={{fontFamily:FM,fontSize:15,fontWeight:800,color:diff>=0?C.savings:C.red}}>{diff>=0?"+":""}{fmt(diff)}</div>
-                  <div style={{fontSize:10,color:C.muted,fontFamily:FB}}>{diff>=0?"a favor":"debe"}</div>
-                </div>
+                <div style={{fontFamily:FD,fontSize:20,fontWeight:800,color:C.ink}}>{fmt(spent)}</div>
               </div>
+              <Bar value={spent} max={totalHouse||1} color={C.commit} h={5}/>
             </Card>
           );
         })}
       </div>
 
-      {/* Admin: shared services split config */}
-      {isAdmin && sharedSvcs.length>0&&(
-        <Card style={{marginBottom:14}}>
-          <div style={{fontSize:11,color:C.muted,fontWeight:700,textTransform:"uppercase",letterSpacing:0.8,fontFamily:FB,marginBottom:10}}>⚙ División de servicios</div>
-          <div style={{fontSize:12,color:C.muted,fontFamily:FB,marginBottom:10}}>Como admin puedes configurar si estos gastos se dividen en partes iguales o personalizadas:</div>
-          {sharedSvcs.map(svc=>(
-            <div key={svc.id} style={{marginBottom:12,padding:"10px 12px",background:C.bg,borderRadius:12}}>
-              <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:splitActive[svc.id]?8:0}}>
-                <div style={{fontFamily:FB,fontSize:13,fontWeight:600,color:C.ink}}>{svc.label} · {fmt(svc.amount)}</div>
-                <button onClick={()=>setSplitActive(p=>({...p,[svc.id]:!p[svc.id]}))} style={{border:`1.5px solid ${splitActive[svc.id]?C.commit:C.border}`,borderRadius:8,background:splitActive[svc.id]?C.commit+"12":"transparent",color:splitActive[svc.id]?C.commit:C.muted,fontFamily:FB,fontSize:11,fontWeight:600,padding:"4px 10px",cursor:"pointer"}}>
-                  {splitActive[svc.id]?"Personalizado":"Partes iguales"}
-                </button>
-              </div>
-              {splitActive[svc.id]&&(
-                <div style={{display:"grid",gap:6}}>
-                  {memberList.map(m=>(
-                    <div key={m.user_id} style={{display:"flex",alignItems:"center",gap:8}}>
-                      <Avatar emoji={m.avatar} name={m.name} size={22}/>
-                      <span style={{fontSize:12,fontFamily:FB,flex:1,color:C.ink}}>{m.name}</span>
-                      <input type="number" placeholder="%" max="100" style={{...SI,width:60,textAlign:"right",padding:"4px 8px",fontSize:12}}
-                        value={splits[svc.id]?.[m.user_id]||""}
-                        onChange={e=>setSplits(p=>({...p,[svc.id]:{...(p[svc.id]||{}),[m.user_id]:+e.target.value}}))}
-                      />
-                      <span style={{fontSize:11,color:C.muted,fontFamily:FB,width:50,textAlign:"right"}}>{fmt(svc.amount*(splits[svc.id]?.[m.user_id]||0)/100)}</span>
-                    </div>
-                  ))}
-                </div>
-              )}
-            </div>
-          ))}
-        </Card>
-      )}
-
-      {/* House tx list */}
-      {houseTxs.length>0&&(
+      {/* All house transactions */}
+      {(houseTxs.length>0||houseRec.length>0)&&(
         <div>
-          <div style={{fontSize:11,color:C.muted,fontWeight:700,textTransform:"uppercase",letterSpacing:0.8,fontFamily:FB,marginBottom:8}}>Gastos puntuales de la casa</div>
+          <div style={{fontSize:11,color:C.muted,fontWeight:700,textTransform:"uppercase",letterSpacing:0.8,fontFamily:FB,marginBottom:8}}>Todos los gastos de la casa</div>
+
+          {/* Recurrentes */}
+          {houseRec.map(r=>(
+            <Card key={r.id} style={{marginBottom:8,padding:"13px 16px",background:C.needs+"06"}}>
+              <div style={{display:"flex",alignItems:"center",gap:10}}>
+                <div style={{flex:1}}>
+                  <div style={{fontSize:13,fontWeight:600,color:C.ink,fontFamily:FB}}>{r.label}</div>
+                  <div style={{display:"flex",alignItems:"center",gap:6,marginTop:2}}>
+                    <Pill color={C.needs} small>Recurrente</Pill>
+                    {r.user_id&&members?.[r.user_id]&&<AuthorTag profile={members[r.user_id]}/>}
+                  </div>
+                </div>
+                <div style={{fontFamily:FM,fontSize:14,fontWeight:700,color:C.ink}}>{fmt(r.amount)}</div>
+              </div>
+            </Card>
+          ))}
+
+          {/* Puntuales con toggle "dividir" */}
           {houseTxs.map(tx=>(
             <Card key={tx.id} style={{marginBottom:8,padding:"13px 16px"}}>
               <div style={{display:"flex",alignItems:"center",gap:10}}>
                 <div style={{flex:1}}>
                   <div style={{fontSize:13,fontWeight:600,color:C.ink,fontFamily:FB}}>{tx.name}</div>
-                  <div style={{display:"flex",alignItems:"center",gap:6,marginTop:2}}>
+                  <div style={{display:"flex",alignItems:"center",gap:6,marginTop:2,flexWrap:"wrap"}}>
                     <span style={{fontSize:10,color:C.muted,fontFamily:FB}}>{tx.date}</span>
                     {tx.user_id&&members?.[tx.user_id]&&<AuthorTag profile={members[tx.user_id]}/>}
                   </div>
                 </div>
-                <div style={{fontFamily:FM,fontSize:14,fontWeight:700,color:C.ink}}>{fmt(tx.amount)}</div>
+                <div style={{display:"flex",alignItems:"center",gap:8}}>
+                  <div style={{fontFamily:FM,fontSize:14,fontWeight:700,color:C.ink}}>{fmt(tx.amount)}</div>
+                  {/* Toggle dividir — informativo, no afecta números */}
+                  <button
+                    onClick={()=>setSplitTx(p=>({...p,[tx.id]:!p[tx.id]}))}
+                    style={{border:`1.5px solid ${splitTx[tx.id]?C.commit:C.border}`,borderRadius:8,background:splitTx[tx.id]?C.commit+"12":"transparent",color:splitTx[tx.id]?C.commit:C.muted,fontFamily:FB,fontSize:10,fontWeight:600,padding:"3px 8px",cursor:"pointer",whiteSpace:"nowrap"}}
+                  >
+                    {splitTx[tx.id]?"÷ Dividido":"÷ Dividir"}
+                  </button>
+                </div>
               </div>
+              {splitTx[tx.id]&&(
+                <div style={{marginTop:8,padding:"8px 10px",background:C.commit+"08",borderRadius:8,fontSize:11,color:C.commit,fontFamily:FB}}>
+                  {fmt(tx.amount/memberList.length)} por persona ({memberList.length} roomies)
+                </div>
+              )}
             </Card>
           ))}
         </div>
+      )}
+
+      {totalHouse===0&&(
+        <div style={{textAlign:"center",color:C.muted,fontSize:13,padding:"40px 0",fontFamily:FB}}>Sin gastos de casa este mes</div>
       )}
     </div>
   );
