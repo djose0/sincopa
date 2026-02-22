@@ -882,35 +882,110 @@ function GastosScreen({ data, derived, actions, members, myProfile }) {
       {/* AHORROS TAB */}
       {tab==="ahorros" && (
         <div>
-          <Card style={{marginBottom:14,background:C.savings+"10",border:`1px solid ${C.savings}25`,padding:16}}>
-            <div style={{fontSize:11,color:C.savings,fontWeight:700,textTransform:"uppercase",letterSpacing:0.8,fontFamily:FB,marginBottom:4}}>Ahorros automáticos</div>
-            <div style={{fontSize:12,color:C.muted,fontFamily:FB,lineHeight:1.6}}>El <strong style={{color:C.savings}}>{activeRule.savings}%</strong> del ingreso se reserva automáticamente. Aquí registras abonos extra.</div>
+          {/* ── AHORROS NORMALES ── */}
+          <Card style={{marginBottom:8,background:C.savings+"10",border:`1px solid ${C.savings}25`,padding:16}}>
+            <div style={{fontSize:11,color:C.savings,fontWeight:700,textTransform:"uppercase",letterSpacing:0.8,fontFamily:FB,marginBottom:4}}>🟢 Ahorros — {activeRule.savings}% automático</div>
+            <div style={{fontSize:12,color:C.muted,fontFamily:FB,lineHeight:1.5}}>Abono extra o retiro de tu fondo de ahorros.</div>
           </Card>
-          <Card style={{marginBottom:12,padding:14}}>
-            <div style={{fontSize:13,fontWeight:700,color:C.ink,fontFamily:FB,marginBottom:10}}>Abono extra a ahorros</div>
-            <div style={{display:"grid",gridTemplateColumns:"1fr 90px 36px",gap:8,marginBottom:6}}>
+
+          {/* Abono a ahorros */}
+          <Card style={{marginBottom:6,padding:14}}>
+            <div style={{fontSize:11,fontWeight:700,color:C.savings,textTransform:"uppercase",letterSpacing:0.8,fontFamily:FB,marginBottom:8}}>+ Abono a ahorros</div>
+            <div style={{display:"grid",gridTemplateColumns:"1fr 90px 36px",gap:8}}>
               <input placeholder="Descripción" value={nSav.name} onChange={e=>setNSav(p=>({...p,name:e.target.value}))} style={SI}/>
               <input type="number" placeholder="$" value={nSav.amount} onChange={e=>setNSav(p=>({...p,amount:e.target.value}))} style={{...SI,width:90,textAlign:"right"}}/>
-              <button onClick={()=>actions.addTx(nSav,"savings",()=>setNSav({name:"",amount:""}))} style={{border:"none",background:C.savings,borderRadius:10,width:36,height:38,display:"flex",alignItems:"center",justifyContent:"center",cursor:"pointer"}}><Plus size={16} color="white"/></button>
+              <button onClick={()=>{if(!nSav.name||!nSav.amount)return;actions.addTx(nSav,"savings",()=>setNSav({name:"",amount:""}));}} style={{border:"none",background:C.savings,borderRadius:10,width:36,height:38,display:"flex",alignItems:"center",justifyContent:"center",cursor:"pointer"}}><Plus size={16} color="white"/></button>
             </div>
           </Card>
-          {transactions.filter(t=>t.category==="savings").map(tx=>(
+
+          {/* Gasto de ahorros */}
+          <Card style={{marginBottom:14,padding:14}}>
+            <div style={{fontSize:11,fontWeight:700,color:C.red,textTransform:"uppercase",letterSpacing:0.8,fontFamily:FB,marginBottom:8}}>− Gasto de ahorros</div>
+            <div style={{display:"grid",gridTemplateColumns:"1fr 90px 36px",gap:8}}>
+              <input placeholder="¿En qué lo usaste?" value={nSav.nameOut||""} onChange={e=>setNSav(p=>({...p,nameOut:e.target.value}))} style={SI}/>
+              <input type="number" placeholder="$" value={nSav.amountOut||""} onChange={e=>setNSav(p=>({...p,amountOut:e.target.value}))} style={{...SI,width:90,textAlign:"right"}}/>
+              <button onClick={()=>{if(!nSav.nameOut||!nSav.amountOut)return;actions.addTx({name:nSav.nameOut,amount:nSav.amountOut},"savings_out",()=>setNSav(p=>({...p,nameOut:"",amountOut:""})));}} style={{border:"none",background:C.red,borderRadius:10,width:36,height:38,display:"flex",alignItems:"center",justifyContent:"center",cursor:"pointer"}}><Plus size={16} color="white"/></button>
+            </div>
+          </Card>
+
+          {/* Historial ahorros */}
+          {transactions.filter(t=>t.category==="savings"||t.category==="savings_out").map(tx=>(
             <Card key={tx.id} style={{marginBottom:8,padding:"13px 16px"}}>
               <div style={{display:"flex",alignItems:"center",gap:10}}>
                 <div style={{flex:1}}>
                   <div style={{fontSize:13,fontWeight:600,color:C.ink,fontFamily:FB}}>{tx.name}</div>
                   <div style={{display:"flex",alignItems:"center",gap:6,marginTop:2}}>
                     <span style={{fontSize:10,color:C.muted,fontFamily:FB}}>{tx.date}</span>
-                    <Pill color={C.savings} small>Ahorro extra</Pill>
+                    <Pill color={tx.category==="savings"?C.savings:C.red} small>{tx.category==="savings"?"+ Abono":"− Gasto"}</Pill>
                     {tx.user_id&&members?.[tx.user_id]&&<AuthorTag profile={members[tx.user_id]}/>}
                   </div>
                 </div>
-                <div style={{fontFamily:FM,fontSize:15,fontWeight:700,color:C.savings}}>+{fmt(tx.amount)}</div>
+                <div style={{fontFamily:FM,fontSize:15,fontWeight:700,color:tx.category==="savings"?C.savings:C.red}}>
+                  {tx.category==="savings"?"+":"-"}{fmt(tx.amount)}
+                </div>
                 <button onClick={()=>actions.delTx(tx.id)} style={{border:`1.5px solid ${C.border}`,borderRadius:8,background:"transparent",padding:6,cursor:"pointer",display:"flex"}}><Trash2 size={12} color={C.red}/></button>
               </div>
             </Card>
           ))}
-          {transactions.filter(t=>t.category==="savings").length===0&&<div style={{textAlign:"center",color:C.muted,fontSize:13,padding:"32px 0",fontFamily:FB}}>Sin abonos extra este mes</div>}
+          {transactions.filter(t=>t.category==="savings"||t.category==="savings_out").length===0&&(
+            <div style={{textAlign:"center",color:C.muted,fontSize:12,padding:"16px 0 24px",fontFamily:FB}}>Sin movimientos en ahorros este mes</div>
+          )}
+
+          {/* ── 4TA CATEGORÍA ── */}
+          {fourthActive&&(
+            <div style={{marginTop:8}}>
+              <Card style={{marginBottom:8,background:C.fourth+"10",border:`1px solid ${C.fourth}25`,padding:16}}>
+                <div style={{fontSize:11,color:C.fourth,fontWeight:700,textTransform:"uppercase",letterSpacing:0.8,fontFamily:FB,marginBottom:4}}>🔵 {fourthName}</div>
+                <div style={{display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+                  <div style={{fontSize:12,color:C.muted,fontFamily:FB}}>Presupuesto: <strong style={{color:C.fourth}}>{fmt(fourthBudget)}</strong></div>
+                  <div style={{fontSize:12,color:C.muted,fontFamily:FB}}>Gastado: <strong style={{color:txFourth>fourthBudget?C.red:C.fourth}}>{fmt(txFourth)}</strong></div>
+                </div>
+              </Card>
+
+              {/* Abono a 4ta */}
+              <Card style={{marginBottom:6,padding:14}}>
+                <div style={{fontSize:11,fontWeight:700,color:C.fourth,textTransform:"uppercase",letterSpacing:0.8,fontFamily:FB,marginBottom:8}}>+ Abono a {fourthName}</div>
+                <div style={{display:"grid",gridTemplateColumns:"1fr 90px 36px",gap:8}}>
+                  <input placeholder="Descripción" value={nSav.nameFourth||""} onChange={e=>setNSav(p=>({...p,nameFourth:e.target.value}))} style={SI}/>
+                  <input type="number" placeholder="$" value={nSav.amountFourth||""} onChange={e=>setNSav(p=>({...p,amountFourth:e.target.value}))} style={{...SI,width:90,textAlign:"right"}}/>
+                  <button onClick={()=>{if(!nSav.nameFourth||!nSav.amountFourth)return;actions.addTx({name:nSav.nameFourth,amount:nSav.amountFourth},"fourth",()=>setNSav(p=>({...p,nameFourth:"",amountFourth:""})));}} style={{border:"none",background:C.fourth,borderRadius:10,width:36,height:38,display:"flex",alignItems:"center",justifyContent:"center",cursor:"pointer"}}><Plus size={16} color="white"/></button>
+                </div>
+              </Card>
+
+              {/* Gasto de 4ta */}
+              <Card style={{marginBottom:14,padding:14}}>
+                <div style={{fontSize:11,fontWeight:700,color:C.red,textTransform:"uppercase",letterSpacing:0.8,fontFamily:FB,marginBottom:8}}>− Gasto de {fourthName}</div>
+                <div style={{display:"grid",gridTemplateColumns:"1fr 90px 36px",gap:8}}>
+                  <input placeholder="¿En qué lo usaste?" value={nSav.nameOutFourth||""} onChange={e=>setNSav(p=>({...p,nameOutFourth:e.target.value}))} style={SI}/>
+                  <input type="number" placeholder="$" value={nSav.amountOutFourth||""} onChange={e=>setNSav(p=>({...p,amountOutFourth:e.target.value}))} style={{...SI,width:90,textAlign:"right"}}/>
+                  <button onClick={()=>{if(!nSav.nameOutFourth||!nSav.amountOutFourth)return;actions.addTx({name:nSav.nameOutFourth,amount:nSav.amountOutFourth},"fourth_out",()=>setNSav(p=>({...p,nameOutFourth:"",amountOutFourth:""})));}} style={{border:"none",background:C.red,borderRadius:10,width:36,height:38,display:"flex",alignItems:"center",justifyContent:"center",cursor:"pointer"}}><Plus size={16} color="white"/></button>
+                </div>
+              </Card>
+
+              {/* Historial 4ta */}
+              {transactions.filter(t=>t.category==="fourth"||t.category==="fourth_out").map(tx=>(
+                <Card key={tx.id} style={{marginBottom:8,padding:"13px 16px"}}>
+                  <div style={{display:"flex",alignItems:"center",gap:10}}>
+                    <div style={{flex:1}}>
+                      <div style={{fontSize:13,fontWeight:600,color:C.ink,fontFamily:FB}}>{tx.name}</div>
+                      <div style={{display:"flex",alignItems:"center",gap:6,marginTop:2}}>
+                        <span style={{fontSize:10,color:C.muted,fontFamily:FB}}>{tx.date}</span>
+                        <Pill color={tx.category==="fourth"?C.fourth:C.red} small>{tx.category==="fourth"?"+ Abono":"− Gasto"}</Pill>
+                        {tx.user_id&&members?.[tx.user_id]&&<AuthorTag profile={members[tx.user_id]}/>}
+                      </div>
+                    </div>
+                    <div style={{fontFamily:FM,fontSize:15,fontWeight:700,color:tx.category==="fourth"?C.fourth:C.red}}>
+                      {tx.category==="fourth"?"+":"-"}{fmt(tx.amount)}
+                    </div>
+                    <button onClick={()=>actions.delTx(tx.id)} style={{border:`1.5px solid ${C.border}`,borderRadius:8,background:"transparent",padding:6,cursor:"pointer",display:"flex"}}><Trash2 size={12} color={C.red}/></button>
+                  </div>
+                </Card>
+              ))}
+              {transactions.filter(t=>t.category==="fourth"||t.category==="fourth_out").length===0&&(
+                <div style={{textAlign:"center",color:C.muted,fontSize:12,padding:"16px 0",fontFamily:FB}}>Sin movimientos en {fourthName} este mes</div>
+              )}
+            </div>
+          )}
         </div>
       )}
     </div>
@@ -1459,16 +1534,19 @@ export default function Sincopa() {
   const txNeeds         = transactions.filter(t=>t.category==="needs").reduce((s,t)=>s+t.amount,0);
   const txWants         = transactions.filter(t=>t.category==="wants").reduce((s,t)=>s+t.amount,0);
   const txSavings       = transactions.filter(t=>t.category==="savings").reduce((s,t)=>s+t.amount,0);
+  const txSavingsOut    = transactions.filter(t=>t.category==="savings_out").reduce((s,t)=>s+t.amount,0);
   const txFourth        = transactions.filter(t=>t.category==="fourth").reduce((s,t)=>s+t.amount,0);
+  const txFourthOut     = transactions.filter(t=>t.category==="fourth_out").reduce((s,t)=>s+t.amount,0);
   const needsSpent      = recNeeds + txNeeds;
   const wantsSpent      = txWants + commitmentTotal;
-  const savingsExtra    = txSavings;
+  const savingsExtra    = txSavings - txSavingsOut;
+  const fourthSpent     = txFourth - txFourthOut;
   const monthSavings    = Math.max(0, savingsBudget + savingsExtra);
   const totalSavings    = totalSavingsAccum + monthSavings - withdrawn;
   const totalBalance    = inc - needsSpent - wantsSpent - savingsBudget - savingsExtra - fourthBudget;
   const isNeg           = totalBalance < 0;
 
-  const derived = { baseInc,balanceCarryover,inc,needsSpent,wantsSpent,savingsExtra,needsBudget,wantsBudget,savingsBudget,fourthBudget,fourthName,fourthActive,txFourth,totalBalance,monthSavings,totalSavings,commitmentTotal,commitmentPct,isNeg,activeRule,currentMonth,currentYear };
+  const derived = { baseInc,balanceCarryover,inc,needsSpent,wantsSpent,savingsExtra,needsBudget,wantsBudget,savingsBudget,fourthBudget,fourthName,fourthActive,txFourth:fourthSpent,totalBalance,monthSavings,totalSavings,commitmentTotal,commitmentPct,isNeg,activeRule,currentMonth,currentYear };
   const data = { salary, extras, rule, custom, recurring, transactions, commitments, history };
 
   // ── ACTIONS ──
@@ -1540,11 +1618,11 @@ export default function Sincopa() {
     },
     addTx: async (tx, cat, reset) => {
       if (!tx.name||!tx.amount) return;
-      const category = cat==="savings"?"savings":cat==="auto"?autoCat(tx.name):cat;
+      const category = cat==="savings"?"savings":cat==="savings_out"?"savings_out":cat==="fourth"?"fourth":cat==="fourth_out"?"fourth_out":cat==="auto"?autoCat(tx.name):cat;
       const row = { id: Date.now(), household_id: household.id, name:tx.name, amount:+tx.amount, category, date:todayStr(), user_id:uid() };
       setTransactions(p=>[...p,row]);
       await SB.from("transactions").insert(row);
-      reset({name:"",amount:""});
+      if(reset) reset({name:"",amount:""});
     },
     delTx: async id => {
       setTransactions(p=>p.filter(t=>t.id!==id));
