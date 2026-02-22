@@ -1088,7 +1088,9 @@ function GastosScreen({ data, derived, actions, members, myProfile }) {
       )}
     </div>
   );
-} ══════════════════════════════════════════
+} 
+
+// ═══════════════ COMPROMISOS SCREEN ══════════════════════════════════════════
 function CompromisosScreen({ data, derived, actions, members }) {
   const { commitments } = data;
   const { commitmentTotal, baseInc } = derived;
