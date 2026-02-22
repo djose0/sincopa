@@ -14,7 +14,7 @@ const C = {
   bg:"#FAF8F4", surface:"#FFFFFF", card:"#F4F1EB",
   ink:"#1A1A1A", muted:"#8A8A8A", border:"#E8E4DC",
   needs:"#2E4DA0", wants:"#E8652A", commit:"#7C3AED", savings:"#2D6A4F",
-  yellow:"#F2B830", red:"#D63C2F",
+  yellow:"#F2B830", red:"#D63C2F", fourth:"#0E7490",
 };
 const FD = "'Georgia','Times New Roman',serif";
 const FB = "system-ui,-apple-system,sans-serif";
@@ -573,14 +573,18 @@ function PayHistory({ payments, profiles, color, onMark, labelPaid, labelMark })
 
 // ═══════════════ HOME SCREEN ══════════════════════════════════════════════════
 function HomeScreen({ derived, members, onHistory, onEmergency }) {
-  const { baseInc,balanceCarryover,needsSpent,wantsSpent,savingsExtra,needsBudget,wantsBudget,savingsBudget,totalBalance,monthSavings,totalSavings,commitmentTotal,commitmentPct,isNeg,activeRule,currentMonth,currentYear } = derived;
+  const { baseInc,balanceCarryover,needsSpent,wantsSpent,savingsExtra,needsBudget,wantsBudget,savingsBudget,fourthBudget,fourthName,fourthActive,txFourth,totalBalance,monthSavings,totalSavings,commitmentTotal,commitmentPct,isNeg,activeRule,currentMonth,currentYear } = derived;
   const totalSpent = needsSpent + wantsSpent;
   const spentPct = baseInc>0 ? clamp(Math.round(totalSpent/baseInc*100),0,100) : 0;
-  const segs = [{v:needsSpent,c:C.needs},{v:wantsSpent,c:C.wants},{v:savingsBudget+savingsExtra,c:C.savings}];
+  const segs = [
+    {v:needsSpent,c:C.needs},{v:wantsSpent,c:C.wants},{v:savingsBudget+savingsExtra,c:C.savings},
+    ...(fourthActive?[{v:txFourth,c:C.fourth}]:[]),
+  ];
   const rows = [
     {label:"Necesidades",spent:needsSpent,budget:needsBudget,color:C.needs},
     {label:"Deseos",spent:wantsSpent,budget:wantsBudget,color:C.wants},
     {label:"Ahorros",spent:savingsBudget+savingsExtra,budget:savingsBudget,color:C.savings},
+    ...(fourthActive?[{label:fourthName,spent:txFourth,budget:fourthBudget,color:C.fourth}]:[]),
   ];
 
   return (
@@ -670,6 +674,23 @@ function HomeScreen({ derived, members, onHistory, onEmergency }) {
         </Card>
       </div>
 
+      {fourthActive&&(
+        <Card style={{marginBottom:14,background:C.fourth+"12",border:`1px solid ${C.fourth}25`}}>
+          <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:6}}>
+            <div>
+              <div style={{fontSize:10,color:C.fourth,fontWeight:700,letterSpacing:0.8,textTransform:"uppercase",fontFamily:FB,marginBottom:2}}>{fourthName}</div>
+              <div style={{fontFamily:FD,fontSize:22,fontWeight:800,color:C.fourth}}>{fmt(txFourth)}</div>
+            </div>
+            <div style={{textAlign:"right"}}>
+              <div style={{fontSize:11,color:C.muted,fontFamily:FB}}>presupuesto</div>
+              <div style={{fontFamily:FM,fontSize:16,fontWeight:700,color:C.fourth}}>{fmt(fourthBudget)}</div>
+            </div>
+          </div>
+          <Bar value={txFourth} max={fourthBudget||1} color={C.fourth} h={6}/>
+          <div style={{fontSize:10,color:C.muted,fontFamily:FB,marginTop:4}}>{fmt(Math.max(0,fourthBudget-txFourth))} restante</div>
+        </Card>
+      )}
+
       <button onClick={onEmergency} style={{width:"100%",border:`2px solid ${C.red}`,borderRadius:16,background:"transparent",color:C.red,fontFamily:FB,fontWeight:700,fontSize:14,padding:14,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",gap:8}}>
         <Zap size={16}/> Retiro de emergencia · {fmt(totalSavings)} disponibles
       </button>
@@ -679,7 +700,7 @@ function HomeScreen({ derived, members, onHistory, onEmergency }) {
 
 // ═══════════════ GASTOS SCREEN ════════════════════════════════════════════════
 function GastosScreen({ data, derived, actions, members, myProfile }) {
-  const { needsSpent,wantsSpent,needsBudget,wantsBudget,savingsBudget,savingsExtra,activeRule,commitmentTotal } = derived;
+  const { needsSpent,wantsSpent,needsBudget,wantsBudget,savingsBudget,savingsExtra,activeRule,commitmentTotal,fourthActive,fourthName,txFourth,fourthBudget } = derived;
   const { recurring, transactions } = data;
   const [tab,setTab]=useState("gastos");
   const [nGasto,setNGasto]=useState({name:"",amount:""});
@@ -827,6 +848,7 @@ function GastosScreen({ data, derived, actions, members, myProfile }) {
                       <select value={editT.category} onChange={e=>setEditT(p=>({...p,category:e.target.value}))} style={{...SI,padding:"8px",width:80}}>
                         <option value="needs">Necesidad</option>
                         <option value="wants">Deseo</option>
+                        {fourthActive&&<option value="fourth">{fourthName||"4ta cat."}</option>}
                       </select>
                       <button onClick={()=>{actions.saveTx(tx.id,editT);setEditTId(null);}} style={{border:"none",background:C.savings,borderRadius:8,width:32,height:38,display:"flex",alignItems:"center",justifyContent:"center",cursor:"pointer"}}><Check size={14} color="white"/></button>
                     </div>
@@ -1138,6 +1160,41 @@ function ConfigScreen({ data, actions, session, household, members, onSignOut })
                 </div>
               </div>
             ))}
+            {/* 4ta categoría */}
+            <div style={{background:C.fourth+"10",border:`1.5px solid ${C.fourth}30`,borderRadius:14,padding:14}}>
+              <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:custom.fourthActive?12:0}}>
+                <div>
+                  <div style={{fontSize:13,fontFamily:FB,fontWeight:700,color:C.fourth}}>4ta categoría</div>
+                  <div style={{fontSize:11,color:C.muted,fontFamily:FB,marginTop:1}}>Meta extra personalizada</div>
+                </div>
+                {/* Toggle */}
+                <button onClick={()=>actions.setCustom(p=>({...p,fourthActive:!p.fourthActive}))} style={{width:48,height:26,borderRadius:13,background:custom.fourthActive?C.fourth:C.border,border:"none",cursor:"pointer",position:"relative",transition:"background 0.2s",flexShrink:0}}>
+                  <div style={{position:"absolute",top:3,left:custom.fourthActive?25:3,width:20,height:20,borderRadius:10,background:"#fff",transition:"left 0.2s",boxShadow:"0 1px 3px rgba(0,0,0,0.2)"}}/>
+                </button>
+              </div>
+              {custom.fourthActive&&(
+                <div style={{display:"grid",gridTemplateColumns:"1fr 80px",gap:8}}>
+                  <div>
+                    <label style={{fontSize:10,fontWeight:700,color:C.muted,textTransform:"uppercase",letterSpacing:0.8,fontFamily:FB,display:"block",marginBottom:4}}>Nombre</label>
+                    <input value={custom.fourthName||""} onChange={e=>actions.setCustom(p=>({...p,fourthName:e.target.value}))} placeholder="Fondo vacaciones..." style={{...SI,borderColor:C.fourth}}/>
+                  </div>
+                  <div>
+                    <label style={{fontSize:10,fontWeight:700,color:C.muted,textTransform:"uppercase",letterSpacing:0.8,fontFamily:FB,display:"block",marginBottom:4}}>%</label>
+                    <input type="number" value={custom.fourthPct||""} onChange={e=>actions.setCustom(p=>({...p,fourthPct:+e.target.value}))} placeholder="10" style={{...SI,borderColor:C.fourth}}/>
+                  </div>
+                </div>
+              )}
+            </div>
+            {/* Suma total */}
+            {(()=>{
+              const total=(+custom.needs||0)+(+custom.wants||0)+(+custom.savings||0)+(custom.fourthActive?+custom.fourthPct||0:0);
+              const over=total>100, under=total<100;
+              return total!==100?(
+                <div style={{background:over?C.red+"12":C.yellow+"18",border:`1px solid ${over?C.red:C.yellow}30`,borderRadius:10,padding:"8px 12px",fontSize:12,fontFamily:FB,color:over?C.red:"#92650a",fontWeight:600}}>
+                  {over?"⚠ Suma":"⚠ Falta"} {Math.abs(100-total)}% — total actual: {total}%
+                </div>
+              ):null;
+            })()}
           </div>
         )}
       </Card>
@@ -1167,7 +1224,7 @@ export default function Sincopa() {
   const [salary,            setSalary]            = useState("");
   const [extras,            setExtras]            = useState([]);
   const [rule,              setRule]              = useState("50/30/20");
-  const [custom,            setCustom]            = useState({needs:50,wants:30,savings:20});
+  const [custom,            setCustom]            = useState({needs:50,wants:30,savings:20,fourthActive:false,fourthName:"",fourthPct:0});
   const [recurring,         setRecurring]         = useState([]);
   const [transactions,      setTransactions]      = useState([]);
   const [commitments,       setCommitments]       = useState([]);
@@ -1261,7 +1318,7 @@ export default function Sincopa() {
     if (st) {
       setSalary(st.salary?.toString() || "");
       setRule(st.rule || "50/30/20");
-      setCustom({ needs: st.custom_needs||50, wants: st.custom_wants||30, savings: st.custom_savings||20 });
+      setCustom({ needs: st.custom_needs||50, wants: st.custom_wants||30, savings: st.custom_savings||20, fourthActive: st.fourth_active||false, fourthName: st.fourth_name||"", fourthPct: st.fourth_pct||0 });
       setCurrentYear(st.current_year || now.getFullYear());
       setCurrentMonth(st.current_month || now.getMonth()+1);
       setTotalSavingsAccum(st.total_savings_accum || 0);
@@ -1355,6 +1412,7 @@ export default function Sincopa() {
       household_id: household.id,
       salary: parseFloat(salary)||0,
       rule, custom_needs: custom.needs, custom_wants: custom.wants, custom_savings: custom.savings,
+      fourth_active: custom.fourthActive||false, fourth_name: custom.fourthName||"", fourth_pct: custom.fourthPct||0,
       current_year: currentYear, current_month: currentMonth,
       total_savings_accum: totalSavingsAccum, withdrawn, balance_carryover: balanceCarryover,
       ...overrides,
@@ -1392,21 +1450,25 @@ export default function Sincopa() {
   const needsBudget     = baseInc * activeRule.needs   / 100;
   const wantsBudget     = baseInc * activeRule.wants   / 100;
   const savingsBudget   = baseInc * activeRule.savings / 100;
+  const fourthBudget    = (rule==="Personalizado"&&custom.fourthActive) ? baseInc*(custom.fourthPct||0)/100 : 0;
+  const fourthName      = custom.fourthName || "4ta categoría";
+  const fourthActive    = rule==="Personalizado" && custom.fourthActive;
   const commitmentTotal = commitments.filter(c=>c.active!==false).reduce((s,c)=>s+(+c.monthly||0),0);
   const commitmentPct   = baseInc>0 ? Math.round(commitmentTotal/baseInc*100) : 0;
   const recNeeds        = recurring.filter(r=>r.active&&+r.amount>0).reduce((s,r)=>s+(+r.amount),0);
   const txNeeds         = transactions.filter(t=>t.category==="needs").reduce((s,t)=>s+t.amount,0);
   const txWants         = transactions.filter(t=>t.category==="wants").reduce((s,t)=>s+t.amount,0);
   const txSavings       = transactions.filter(t=>t.category==="savings").reduce((s,t)=>s+t.amount,0);
+  const txFourth        = transactions.filter(t=>t.category==="fourth").reduce((s,t)=>s+t.amount,0);
   const needsSpent      = recNeeds + txNeeds;
   const wantsSpent      = txWants + commitmentTotal;
   const savingsExtra    = txSavings;
   const monthSavings    = Math.max(0, savingsBudget + savingsExtra);
   const totalSavings    = totalSavingsAccum + monthSavings - withdrawn;
-  const totalBalance    = inc - needsSpent - wantsSpent - savingsBudget - savingsExtra;
+  const totalBalance    = inc - needsSpent - wantsSpent - savingsBudget - savingsExtra - fourthBudget;
   const isNeg           = totalBalance < 0;
 
-  const derived = { baseInc,balanceCarryover,inc,needsSpent,wantsSpent,savingsExtra,needsBudget,wantsBudget,savingsBudget,totalBalance,monthSavings,totalSavings,commitmentTotal,commitmentPct,isNeg,activeRule,currentMonth,currentYear };
+  const derived = { baseInc,balanceCarryover,inc,needsSpent,wantsSpent,savingsExtra,needsBudget,wantsBudget,savingsBudget,fourthBudget,fourthName,fourthActive,txFourth,totalBalance,monthSavings,totalSavings,commitmentTotal,commitmentPct,isNeg,activeRule,currentMonth,currentYear };
   const data = { salary, extras, rule, custom, recurring, transactions, commitments, history };
 
   // ── ACTIONS ──
@@ -1419,7 +1481,7 @@ export default function Sincopa() {
     setCustom: async fn => {
       const next = typeof fn==="function" ? fn(custom) : fn;
       setCustom(next);
-      await saveState({ custom_needs:next.needs, custom_wants:next.wants, custom_savings:next.savings });
+      await saveState({ custom_needs:next.needs, custom_wants:next.wants, custom_savings:next.savings, fourth_active:next.fourthActive||false, fourth_name:next.fourthName||"", fourth_pct:next.fourthPct||0 });
     },
     addExtra: async e => {
       if (!e.label||!e.amount) return;
