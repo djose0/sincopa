@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from "react";
-import { Plus, X, Pencil, Check, Trash2, Archive, Zap, Home, List, Settings, Layers, LogOut, Copy, RefreshCw } from "lucide-react";
+import { Plus, X, Pencil, Check, Trash2, Archive, Zap, Home, List, Settings, Layers, LogOut, Copy, RefreshCw, Users } from "lucide-react";
 import { createClient } from "@supabase/supabase-js";
 
 const SUPABASE_URL  = "https://fjxuijmagvrmavtrpqix.supabase.co";
@@ -1207,13 +1207,224 @@ function CompromisosScreen({ data, derived, actions, members }) {
   );
 }
 
+// ═══════════════ HOGAR SCREEN ═════════════════════════════════════════════════
+function HogarScreen({ data, derived, actions, members, session, household }) {
+  const { transactions, recurring, commitments } = data;
+  const { householdType, baseInc, memberSalaries, myUid } = derived;
+  const myId = session?.user?.id;
+  const isAdmin = members?.[myId]?.role === "admin";
+  const memberList = Object.values(members||{});
+
+  // ── PAREJA VIEW ──
+  if (householdType === "pareja") {
+    return (
+      <div style={{padding:"0 16px 100px"}}>
+        <div style={{padding:"20px 0 14px"}}>
+          <div style={{fontFamily:FD,fontSize:24,fontWeight:800,color:C.ink}}>Hogar</div>
+          <div style={{fontSize:12,color:C.muted,fontFamily:FB}}>Gastos por persona</div>
+        </div>
+
+        {memberList.map(m => {
+          const mTxs   = transactions.filter(t=>t.user_id===m.user_id && t.category!=="savings"&&t.category!=="savings_out"&&t.category!=="fourth"&&t.category!=="fourth_out");
+          const mRec   = recurring.filter(r=>r.user_id===m.user_id && r.active);
+          const totalPuntual = mTxs.reduce((s,t)=>s+t.amount,0);
+          const totalRec     = mRec.reduce((s,r)=>s+(+r.amount),0);
+          const total        = totalPuntual + totalRec;
+          const pct          = baseInc>0 ? Math.round(total/baseInc*100) : 0;
+          const mSalary      = memberSalaries[m.user_id]||0;
+
+          return (
+            <Card key={m.user_id} style={{marginBottom:14}}>
+              <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:12}}>
+                <Avatar emoji={m.avatar} name={m.name} size={40}/>
+                <div style={{flex:1}}>
+                  <div style={{fontFamily:FB,fontSize:15,fontWeight:700,color:C.ink}}>{m.name}</div>
+                  {mSalary>0&&<div style={{fontSize:11,color:C.muted,fontFamily:FB}}>Ingreso: {fmt(mSalary)}</div>}
+                </div>
+                <div style={{textAlign:"right"}}>
+                  <div style={{fontFamily:FD,fontSize:20,fontWeight:800,color:C.ink}}>{fmt(total)}</div>
+                  <div style={{fontSize:11,color:C.muted,fontFamily:FB}}>{pct}% del hogar</div>
+                </div>
+              </div>
+              <Bar value={total} max={baseInc||1} color={C.needs} h={6}/>
+              {/* Breakdown */}
+              {totalRec>0&&(
+                <div style={{marginTop:10}}>
+                  <div style={{fontSize:10,color:C.muted,fontWeight:700,textTransform:"uppercase",letterSpacing:0.8,fontFamily:FB,marginBottom:6}}>Recurrentes</div>
+                  {mRec.map((r,i)=>(
+                    <div key={i} style={{display:"flex",justifyContent:"space-between",padding:"6px 0",borderBottom:`1px solid ${C.border}`}}>
+                      <span style={{fontSize:12,fontFamily:FB,color:C.ink}}>{r.label}</span>
+                      <span style={{fontSize:12,fontFamily:FM,fontWeight:600,color:C.ink}}>{fmt(r.amount)}</span>
+                    </div>
+                  ))}
+                </div>
+              )}
+              {mTxs.length>0&&(
+                <div style={{marginTop:10}}>
+                  <div style={{fontSize:10,color:C.muted,fontWeight:700,textTransform:"uppercase",letterSpacing:0.8,fontFamily:FB,marginBottom:6}}>Puntuales</div>
+                  {mTxs.map((t,i)=>(
+                    <div key={i} style={{display:"flex",justifyContent:"space-between",padding:"6px 0",borderBottom:`1px solid ${C.border}`}}>
+                      <div>
+                        <span style={{fontSize:12,fontFamily:FB,color:C.ink}}>{t.name}</span>
+                        <span style={{fontSize:10,color:C.muted,fontFamily:FB,marginLeft:6}}>{t.date}</span>
+                      </div>
+                      <span style={{fontSize:12,fontFamily:FM,fontWeight:600,color:C.ink}}>{fmt(t.amount)}</span>
+                    </div>
+                  ))}
+                </div>
+              )}
+              {total===0&&<div style={{textAlign:"center",color:C.muted,fontSize:12,fontFamily:FB,padding:"8px 0"}}>Sin gastos este mes</div>}
+            </Card>
+          );
+        })}
+
+        {/* Comparison bar */}
+        {memberList.length===2&&(()=>{
+          const [a,b] = memberList;
+          const ta = [...transactions.filter(t=>t.user_id===a.user_id),...recurring.filter(r=>r.user_id===a.user_id&&r.active)].reduce((s,t)=>s+(+t.amount||0),0);
+          const tb = [...transactions.filter(t=>t.user_id===b.user_id),...recurring.filter(r=>r.user_id===b.user_id&&r.active)].reduce((s,t)=>s+(+t.amount||0),0);
+          const tot = ta+tb||1;
+          return (
+            <Card style={{background:C.card}}>
+              <div style={{fontSize:10,color:C.muted,fontWeight:700,textTransform:"uppercase",letterSpacing:0.8,fontFamily:FB,marginBottom:10}}>Comparativa</div>
+              <div style={{display:"flex",height:12,borderRadius:6,overflow:"hidden",gap:2}}>
+                <div style={{flex:ta/tot,background:C.needs,borderRadius:"6px 0 0 6px"}}/>
+                <div style={{flex:tb/tot,background:C.wants,borderRadius:"0 6px 6px 0"}}/>
+              </div>
+              <div style={{display:"flex",justifyContent:"space-between",marginTop:6}}>
+                <div style={{display:"flex",alignItems:"center",gap:4}}><div style={{width:8,height:8,borderRadius:2,background:C.needs}}/><span style={{fontSize:11,fontFamily:FB,color:C.muted}}>{a.name} {Math.round(ta/tot*100)}%</span></div>
+                <div style={{display:"flex",alignItems:"center",gap:4}}><span style={{fontSize:11,fontFamily:FB,color:C.muted}}>{b.name} {Math.round(tb/tot*100)}%</span><div style={{width:8,height:8,borderRadius:2,background:C.wants}}/></div>
+              </div>
+            </Card>
+          );
+        })()}
+      </div>
+    );
+  }
+
+  // ── ROOMIES VIEW ──
+  const SHARED_SERVICES = ["renta","internet","luz","agua","gas"];
+  const [splits, setSplits] = React.useState({}); // { label: "equal"|{uid:pct} }
+  const [splitActive, setSplitActive] = React.useState({}); // { label: bool }
+
+  const houseTxs = transactions.filter(t=>t.for_house&&t.category!=="savings"&&t.category!=="savings_out"&&t.category!=="fourth"&&t.category!=="fourth_out");
+  const houseRec = recurring.filter(r=>r.for_house!==false&&r.active);
+  const totalHouse = [...houseTxs,...houseRec].reduce((s,t)=>s+(+t.amount||0),0);
+  const memberCount = memberList.length||1;
+
+  // Shared services from recurring
+  const sharedSvcs = houseRec.filter(r=>SHARED_SERVICES.some(k=>r.label?.toLowerCase().includes(k)));
+
+  return (
+    <div style={{padding:"0 16px 100px"}}>
+      <div style={{padding:"20px 0 14px"}}>
+        <div style={{fontFamily:FD,fontSize:24,fontWeight:800,color:C.ink}}>Hogar</div>
+        <div style={{fontSize:12,color:C.muted,fontFamily:FB}}>Gastos compartidos</div>
+      </div>
+
+      {/* Total house summary */}
+      <Card style={{marginBottom:14,background:C.commit+"08",border:`1px solid ${C.commit}20`}}>
+        <div style={{display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+          <div>
+            <div style={{fontSize:10,color:C.commit,fontWeight:700,textTransform:"uppercase",letterSpacing:0.8,fontFamily:FB,marginBottom:2}}>Total casa este mes</div>
+            <div style={{fontFamily:FD,fontSize:28,fontWeight:800,color:C.commit}}>{fmt(totalHouse)}</div>
+          </div>
+          <div style={{textAlign:"right"}}>
+            <div style={{fontSize:11,color:C.muted,fontFamily:FB}}>Partes iguales</div>
+            <div style={{fontFamily:FM,fontSize:20,fontWeight:800,color:C.commit}}>{fmt(totalHouse/memberCount)}</div>
+            <div style={{fontSize:10,color:C.muted,fontFamily:FB}}>por persona</div>
+          </div>
+        </div>
+      </Card>
+
+      {/* Per-member spending */}
+      <div style={{marginBottom:14}}>
+        <div style={{fontSize:11,color:C.muted,fontWeight:700,textTransform:"uppercase",letterSpacing:0.8,fontFamily:FB,marginBottom:8}}>Aportaciones por persona</div>
+        {memberList.map(m=>{
+          const spent = [...houseTxs.filter(t=>t.user_id===m.user_id),...houseRec.filter(r=>r.user_id===m.user_id)].reduce((s,t)=>s+(+t.amount||0),0);
+          const expected = totalHouse/memberCount;
+          const diff = spent - expected;
+          return (
+            <Card key={m.user_id} style={{marginBottom:8,padding:"13px 16px"}}>
+              <div style={{display:"flex",alignItems:"center",gap:10}}>
+                <Avatar emoji={m.avatar} name={m.name} size={36}/>
+                <div style={{flex:1}}>
+                  <div style={{fontFamily:FB,fontSize:14,fontWeight:700,color:C.ink}}>{m.name}</div>
+                  <div style={{fontSize:11,color:C.muted,fontFamily:FB,marginTop:1}}>Ha puesto: {fmt(spent)}</div>
+                </div>
+                <div style={{textAlign:"right"}}>
+                  <div style={{fontFamily:FM,fontSize:15,fontWeight:800,color:diff>=0?C.savings:C.red}}>{diff>=0?"+":""}{fmt(diff)}</div>
+                  <div style={{fontSize:10,color:C.muted,fontFamily:FB}}>{diff>=0?"a favor":"debe"}</div>
+                </div>
+              </div>
+            </Card>
+          );
+        })}
+      </div>
+
+      {/* Admin: shared services split config */}
+      {isAdmin && sharedSvcs.length>0&&(
+        <Card style={{marginBottom:14}}>
+          <div style={{fontSize:11,color:C.muted,fontWeight:700,textTransform:"uppercase",letterSpacing:0.8,fontFamily:FB,marginBottom:10}}>⚙ División de servicios</div>
+          <div style={{fontSize:12,color:C.muted,fontFamily:FB,marginBottom:10}}>Como admin puedes configurar si estos gastos se dividen en partes iguales o personalizadas:</div>
+          {sharedSvcs.map(svc=>(
+            <div key={svc.id} style={{marginBottom:12,padding:"10px 12px",background:C.bg,borderRadius:12}}>
+              <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:splitActive[svc.id]?8:0}}>
+                <div style={{fontFamily:FB,fontSize:13,fontWeight:600,color:C.ink}}>{svc.label} · {fmt(svc.amount)}</div>
+                <button onClick={()=>setSplitActive(p=>({...p,[svc.id]:!p[svc.id]}))} style={{border:`1.5px solid ${splitActive[svc.id]?C.commit:C.border}`,borderRadius:8,background:splitActive[svc.id]?C.commit+"12":"transparent",color:splitActive[svc.id]?C.commit:C.muted,fontFamily:FB,fontSize:11,fontWeight:600,padding:"4px 10px",cursor:"pointer"}}>
+                  {splitActive[svc.id]?"Personalizado":"Partes iguales"}
+                </button>
+              </div>
+              {splitActive[svc.id]&&(
+                <div style={{display:"grid",gap:6}}>
+                  {memberList.map(m=>(
+                    <div key={m.user_id} style={{display:"flex",alignItems:"center",gap:8}}>
+                      <Avatar emoji={m.avatar} name={m.name} size={22}/>
+                      <span style={{fontSize:12,fontFamily:FB,flex:1,color:C.ink}}>{m.name}</span>
+                      <input type="number" placeholder="%" max="100" style={{...SI,width:60,textAlign:"right",padding:"4px 8px",fontSize:12}}
+                        value={splits[svc.id]?.[m.user_id]||""}
+                        onChange={e=>setSplits(p=>({...p,[svc.id]:{...(p[svc.id]||{}),[m.user_id]:+e.target.value}}))}
+                      />
+                      <span style={{fontSize:11,color:C.muted,fontFamily:FB,width:50,textAlign:"right"}}>{fmt(svc.amount*(splits[svc.id]?.[m.user_id]||0)/100)}</span>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          ))}
+        </Card>
+      )}
+
+      {/* House tx list */}
+      {houseTxs.length>0&&(
+        <div>
+          <div style={{fontSize:11,color:C.muted,fontWeight:700,textTransform:"uppercase",letterSpacing:0.8,fontFamily:FB,marginBottom:8}}>Gastos puntuales de la casa</div>
+          {houseTxs.map(tx=>(
+            <Card key={tx.id} style={{marginBottom:8,padding:"13px 16px"}}>
+              <div style={{display:"flex",alignItems:"center",gap:10}}>
+                <div style={{flex:1}}>
+                  <div style={{fontSize:13,fontWeight:600,color:C.ink,fontFamily:FB}}>{tx.name}</div>
+                  <div style={{display:"flex",alignItems:"center",gap:6,marginTop:2}}>
+                    <span style={{fontSize:10,color:C.muted,fontFamily:FB}}>{tx.date}</span>
+                    {tx.user_id&&members?.[tx.user_id]&&<AuthorTag profile={members[tx.user_id]}/>}
+                  </div>
+                </div>
+                <div style={{fontFamily:FM,fontSize:14,fontWeight:700,color:C.ink}}>{fmt(tx.amount)}</div>
+              </div>
+            </Card>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ═══════════════ CONFIG SCREEN ════════════════════════════════════════════════
 function ConfigScreen({ data, actions, session, household, members, onSignOut, derived }) {
   const { salary, extras, rule, custom, householdType } = data;
-  const { mySalary, partnerSalary } = derived;
+  const { memberSalaries } = derived;
   const myId = session?.user?.id;
   const isAdmin = members?.[myId]?.role === "admin";
-  const partnerProfile = Object.values(members||{}).find(m=>m.user_id !== myId);
   const [nExtra,setNExtra]=useState({label:"",amount:""});
   const [editEId,setEditEId]=useState(null);
   const [editE,setEditE]=useState({});
@@ -1276,48 +1487,46 @@ function ConfigScreen({ data, actions, session, household, members, onSignOut, d
 
         <div style={{marginTop:12}}>
           {Object.values(members||{}).map(m=>(
-            <div key={m.user_id} style={{display:"flex",alignItems:"center",gap:10,marginBottom:6}}>
+            <div key={m.user_id} style={{display:"flex",alignItems:"center",gap:10,marginBottom:8,padding:"8px 10px",background:m.user_id===myId?C.commit+"08":"transparent",borderRadius:10}}>
               <Avatar emoji={m.avatar} name={m.name} size={28}/>
-              <div style={{fontSize:13,fontWeight:600,color:C.ink,fontFamily:FB}}>{m.name}</div>
+              <div style={{fontSize:13,fontWeight:600,color:C.ink,fontFamily:FB,flex:1}}>{m.name}{m.user_id===myId?" (tú)":""}</div>
               <Pill color={m.role==="admin"?C.commit:C.muted} small>{m.role==="admin"?"Admin":"Miembro"}</Pill>
+              {/* Admin-only controls: only show for other members */}
+              {isAdmin && m.user_id!==myId && (
+                <div style={{display:"flex",gap:4}}>
+                  {m.role!=="admin"&&(
+                    <button onClick={()=>{if(confirm(`¿Dar rol de admin a ${m.name}?`))actions.promoteMember(m.user_id);}} style={{border:`1.5px solid ${C.commit}`,borderRadius:8,background:"transparent",color:C.commit,fontFamily:FB,fontSize:10,fontWeight:600,padding:"3px 8px",cursor:"pointer"}}>Admin</button>
+                  )}
+                  <button onClick={()=>{if(confirm(`¿Eliminar a ${m.name} del hogar?`))actions.removeMember(m.user_id);}} style={{border:`1.5px solid ${C.red}`,borderRadius:8,background:"transparent",color:C.red,fontFamily:FB,fontSize:10,fontWeight:600,padding:"3px 8px",cursor:"pointer"}}>Salir</button>
+                </div>
+              )}
             </div>
           ))}
         </div>
       </Card>
 
-      {/* Salary — different for pareja vs others */}
+      {/* Salary — for pareja/roomies: each edits only their own */}
       {householdType === "pareja" ? (
         <Card style={{marginBottom:14}}>
-          <div style={{fontFamily:FB,fontSize:14,fontWeight:700,color:C.ink,marginBottom:14}}>💰 Salarios</div>
-          {/* Mi salario — always editable */}
-          <div style={{marginBottom:14}}>
-            <label style={{fontSize:10,fontWeight:700,color:C.muted,textTransform:"uppercase",letterSpacing:0.8,fontFamily:FB,display:"block",marginBottom:6}}>
-              {isAdmin ? "Mi salario" : "Mi salario"} {myId && members?.[myId] ? `· ${members[myId].name}` : ""}
-            </label>
-            <div style={{position:"relative"}}>
-              <span style={{position:"absolute",left:14,top:"50%",transform:"translateY(-50%)",fontSize:20,fontFamily:FM,color:C.muted,pointerEvents:"none"}}>$</span>
-              <input type="number" value={salary} onChange={e=>actions.setSalary(e.target.value)} placeholder="0" style={{...SI,borderRadius:14,fontFamily:FM,fontSize:24,fontWeight:800,padding:"10px 16px 10px 36px",border:`1.5px solid ${C.needs}`}}/>
+          <div style={{fontFamily:FB,fontSize:14,fontWeight:700,color:C.ink,marginBottom:6}}>💰 Mi ingreso mensual</div>
+          <div style={{fontSize:11,color:C.muted,fontFamily:FB,marginBottom:10}}>Cada integrante actualiza el suyo. El total del hogar se calcula sumando ambos.</div>
+          <div style={{position:"relative"}}>
+            <span style={{position:"absolute",left:14,top:"50%",transform:"translateY(-50%)",fontSize:20,fontFamily:FM,color:C.muted,pointerEvents:"none"}}>$</span>
+            <input type="number" value={salary} onChange={e=>actions.setSalary(e.target.value)} placeholder="0" style={{...SI,borderRadius:14,fontFamily:FM,fontSize:28,fontWeight:800,padding:"12px 16px 12px 36px",border:`1.5px solid ${C.needs}`}}/>
+          </div>
+          {Object.keys(memberSalaries).length>0&&(
+            <div style={{marginTop:10,background:C.bg,borderRadius:10,padding:"8px 12px",fontSize:12,fontFamily:FB,color:C.muted}}>
+              Ingreso total del hogar: <strong style={{color:C.ink}}>{fmt(Object.values(memberSalaries).reduce((s,v)=>s+(+v||0),0))}</strong>
             </div>
-          </div>
-          {/* Salario pareja — editable solo por admin, read-only para el otro */}
-          <div>
-            <label style={{fontSize:10,fontWeight:700,color:C.muted,textTransform:"uppercase",letterSpacing:0.8,fontFamily:FB,display:"block",marginBottom:6}}>
-              Salario de {partnerProfile?.name || "tu pareja"}
-            </label>
-            {isAdmin ? (
-              <div style={{position:"relative"}}>
-                <span style={{position:"absolute",left:14,top:"50%",transform:"translateY(-50%)",fontSize:20,fontFamily:FM,color:C.muted,pointerEvents:"none"}}>$</span>
-                <input type="number" value={partnerSalary||""} onChange={e=>actions.setPartnerSalary(e.target.value)} placeholder="0" style={{...SI,borderRadius:14,fontFamily:FM,fontSize:24,fontWeight:800,padding:"10px 16px 10px 36px",border:`1.5px solid ${C.wants}`}}/>
-              </div>
-            ) : (
-              <div style={{background:C.bg,borderRadius:14,padding:"10px 16px",fontFamily:FM,fontSize:24,fontWeight:800,color:C.muted,border:`1.5px solid ${C.border}`}}>
-                {partnerSalary>0 ? `$${(+partnerSalary).toLocaleString("es-MX")}` : "—"}
-              </div>
-            )}
-            {!isAdmin&&<div style={{fontSize:11,color:C.muted,fontFamily:FB,marginTop:6}}>Tu pareja actualiza este dato</div>}
-          </div>
-          <div style={{marginTop:10,background:C.bg,borderRadius:10,padding:"8px 12px",fontSize:12,fontFamily:FB,color:C.muted}}>
-            Ingreso total del hogar: <strong style={{color:C.ink}}>${((+salary||0)+(+partnerSalary||0)).toLocaleString("es-MX")}</strong>
+          )}
+        </Card>
+      ) : householdType === "roomies" ? (
+        <Card style={{marginBottom:14}}>
+          <div style={{fontFamily:FB,fontSize:14,fontWeight:700,color:C.ink,marginBottom:6}}>💰 Mi ingreso mensual</div>
+          <div style={{fontSize:11,color:C.muted,fontFamily:FB,marginBottom:10}}>Privado — solo tú lo ves. Tu presupuesto es independiente.</div>
+          <div style={{position:"relative"}}>
+            <span style={{position:"absolute",left:14,top:"50%",transform:"translateY(-50%)",fontSize:20,fontFamily:FM,color:C.muted,pointerEvents:"none"}}>$</span>
+            <input type="number" value={salary} onChange={e=>actions.setSalary(e.target.value)} placeholder="0" style={{...SI,borderRadius:14,fontFamily:FM,fontSize:28,fontWeight:800,padding:"12px 16px 12px 36px",border:`1.5px solid ${C.border}`}}/>
           </div>
         </Card>
       ) : (
@@ -1455,6 +1664,7 @@ export default function Sincopa() {
   const [currentYear,       setCurrentYear]       = useState(now.getFullYear());
   const [currentMonth,      setCurrentMonth]       = useState(now.getMonth()+1);
   const [salary,            setSalary]            = useState("");
+  const [memberSalaries,    setMemberSalaries]    = useState({}); // { user_id: salary } — private per user
   const [extras,            setExtras]            = useState([]);
   const [rule,              setRule]              = useState("50/30/20");
   const [custom,            setCustom]            = useState({needs:50,wants:30,savings:20,fourthActive:false,fourthName:"",fourthPct:0});
@@ -1466,7 +1676,6 @@ export default function Sincopa() {
   const [withdrawn,         setWithdrawn]         = useState(0);
   const [balanceCarryover,  setBalanceCarryover]  = useState(0);
   const [householdType,     setHouseholdType]     = useState("individual"); // individual | pareja | roomies
-  const [partnerSalary,     setPartnerSalary]     = useState(0); // for pareja: partner's salary (read-only for non-admin)
   const [showHistory,       setShowHistory]       = useState(false);
   const [showEmergency,     setShowEmergency]     = useState(false);
 
@@ -1531,16 +1740,17 @@ export default function Sincopa() {
   }
 
   async function loadAppState(hh, s) {
-    // Load all data from Supabase tables for this household
     const hid = hh.id;
-    
-    const [recR, txR, commitR, extrasR, histR, stateR] = await Promise.all([
+    const uid = s.user.id;
+
+    const [recR, txR, commitR, extrasR, histR, stateR, salR] = await Promise.all([
       SB.from("recurring").select("*").eq("household_id", hid),
       SB.from("transactions").select("*").eq("household_id", hid),
       SB.from("commitments").select("*").eq("household_id", hid),
       SB.from("extras").select("*").eq("household_id", hid),
       SB.from("history").select("*").eq("household_id", hid),
       SB.from("household_state").select("*").eq("household_id", hid),
+      SB.from("member_salaries").select("*").eq("household_id", hid),
     ]);
 
     if (recR.data)    setRecurring(recR.data);
@@ -1549,9 +1759,19 @@ export default function Sincopa() {
     if (extrasR.data) setExtras(extrasR.data);
     if (histR.data)   setHistory(histR.data);
 
+    // Build memberSalaries map — my own salary is always present; others' only for pareja
+    if (salR.data) {
+      const map = {};
+      salR.data.forEach(r => { map[r.user_id] = r.salary; });
+      setMemberSalaries(map);
+      // Keep local salary state synced to my own
+      if (map[uid] !== undefined) setSalary(map[uid].toString());
+    }
+
     const st = stateR.data?.[0];
     if (st) {
-      setSalary(st.salary?.toString() || "");
+      // For individual/backwards compat, fall back to household_state salary
+      if (!salR.data?.length) setSalary(st.salary?.toString() || "");
       setRule(st.rule || "50/30/20");
       setCustom({ needs: st.custom_needs||50, wants: st.custom_wants||30, savings: st.custom_savings||20, fourthActive: st.fourth_active||false, fourthName: st.fourth_name||"", fourthPct: st.fourth_pct||0 });
       setCurrentYear(st.current_year || now.getFullYear());
@@ -1560,7 +1780,6 @@ export default function Sincopa() {
       setWithdrawn(st.withdrawn || 0);
       setBalanceCarryover(st.balance_carryover || 0);
       setHouseholdType(st.household_type || hh.household_type || "individual");
-      setPartnerSalary(st.partner_salary || 0);
     }
 
     // Auto-rollover check
@@ -1652,7 +1871,7 @@ export default function Sincopa() {
       fourth_active: custom.fourthActive||false, fourth_name: custom.fourthName||"", fourth_pct: custom.fourthPct||0,
       current_year: currentYear, current_month: currentMonth,
       total_savings_accum: totalSavingsAccum, withdrawn, balance_carryover: balanceCarryover,
-      household_type: householdType, partner_salary: partnerSalary,
+      household_type: householdType,
       ...overrides,
     };
     await SB.from("household_state").upsert(st, { onConflict: "household_id" });
@@ -1683,8 +1902,12 @@ export default function Sincopa() {
 
   // ── DERIVED ──
   const activeRule      = rule==="Personalizado" ? custom : RULES[rule];
+  const myUid           = session?.user?.id;
   const mySalary        = parseFloat(salary)||0;
-  const baseInc         = mySalary + (householdType==="pareja" ? partnerSalary : 0) + extras.reduce((s,e)=>s+(+e.amount||0),0);
+  // For pareja: sum all member salaries. For roomies: only my own salary. For individual: my salary.
+  const baseInc = householdType==="pareja"
+    ? Object.values(memberSalaries).reduce((s,v)=>s+(+v||0),0) + extras.reduce((s,e)=>s+(+e.amount||0),0)
+    : mySalary + extras.reduce((s,e)=>s+(+e.amount||0),0);
   const inc             = baseInc + balanceCarryover;
   const needsBudget     = baseInc * activeRule.needs   / 100;
   const wantsBudget     = baseInc * activeRule.wants   / 100;
@@ -1734,7 +1957,7 @@ export default function Sincopa() {
     totalBalance, monthSavings, totalSavings,
     commitmentTotal, commitmentPct,
     isNeg, activeRule, currentMonth, currentYear,
-    householdType, mySalary, partnerSalary,
+    householdType, mySalary, memberSalaries, myUid,
   };
   const data = { salary, extras, rule, custom, recurring, transactions, commitments, history, householdType };
 
@@ -1743,9 +1966,20 @@ export default function Sincopa() {
   const getToken = async () => { const { data } = await SB.auth.getSession(); return data.session?.access_token; };
 
   const actions = {
-    setSalary: async v => { setSalary(v); await saveState({ salary: parseFloat(v)||0 }); },
+    setSalary: async v => {
+      setSalary(v);
+      const numVal = parseFloat(v)||0;
+      const myId = session?.user?.id;
+      // Save to member_salaries table (per-user, private)
+      setMemberSalaries(p=>({...p,[myId]:numVal}));
+      await SB.from("member_salaries").upsert(
+        { household_id: household.id, user_id: myId, salary: numVal },
+        { onConflict: "household_id,user_id" }
+      );
+      // Also save to household_state for individual/backwards compat
+      if (householdType==="individual") await saveState({ salary: numVal });
+    },
     setHouseholdType: async v => { setHouseholdType(v); await saveState({ household_type: v }); },
-    setPartnerSalary: async v => { setPartnerSalary(+v||0); await saveState({ partner_salary: +v||0 }); },
     setRule:   async v => { setRule(v);   await saveState({ rule: v }); },
     setCustom: async fn => {
       const next = typeof fn==="function" ? fn(custom) : fn;
@@ -1860,6 +2094,14 @@ export default function Sincopa() {
       setWithdrawn(nw);
       await saveState({ withdrawn: nw });
     },
+    promoteMember: async (targetUserId) => {
+      await SB.from("household_members").update({ role: "admin" }).eq("household_id", household.id).eq("user_id", targetUserId);
+      await loadAllMembers(household.id, session);
+    },
+    removeMember: async (targetUserId) => {
+      await SB.from("household_members").delete().eq("household_id", household.id).eq("user_id", targetUserId);
+      await loadAllMembers(household.id, session);
+    },
   };
 
   // ── SCREENS ──
@@ -1878,10 +2120,12 @@ export default function Sincopa() {
   if (screen==="auth")      return <AuthScreen onAuth={handleAuth}/>;
   if (screen==="household") return <HouseholdScreen session={session} onHousehold={handleHousehold} onSignOut={handleSignOut}/>;
 
+  const showHogarTab = householdType === "pareja" || householdType === "roomies";
   const TABS = [
     {id:"home",        Icon:Home,     label:"Inicio"},
     {id:"gastos",      Icon:List,     label:"Gastos"},
     {id:"compromisos", Icon:Layers,   label:"Compromisos"},
+    ...(showHogarTab ? [{id:"hogar", Icon:Users, label:"Hogar"}] : []),
     {id:"config",      Icon:Settings, label:"Config"},
   ];
 
@@ -1894,10 +2138,11 @@ export default function Sincopa() {
         {tab==="home"        && <HomeScreen        derived={derived} members={members} onHistory={()=>setShowHistory(true)} onEmergency={()=>setShowEmergency(true)}/>}
         {tab==="gastos"      && <GastosScreen      data={data} derived={derived} actions={actions} members={members} myProfile={myProfile}/>}
         {tab==="compromisos" && <CompromisosScreen data={data} derived={derived} actions={actions} members={members}/>}
+        {tab==="hogar"       && <HogarScreen       data={data} derived={derived} actions={actions} members={members} session={session} household={household}/>}
         {tab==="config"      && <ConfigScreen      data={data} actions={actions} session={session} household={household} members={members} onSignOut={handleSignOut} derived={derived}/>}
       </div>
 
-      <div style={{position:"fixed",bottom:0,left:"50%",transform:"translateX(-50%)",width:"100%",maxWidth:480,background:C.surface,borderTop:`1px solid ${C.border}`,display:"grid",gridTemplateColumns:"repeat(4,1fr)",padding:"8px 0 16px",zIndex:100,boxShadow:"0 -4px 20px rgba(0,0,0,0.06)"}}>
+      <div style={{position:"fixed",bottom:0,left:"50%",transform:"translateX(-50%)",width:"100%",maxWidth:480,background:C.surface,borderTop:`1px solid ${C.border}`,display:"grid",gridTemplateColumns:`repeat(${TABS.length},1fr)`,padding:"8px 0 16px",zIndex:100,boxShadow:"0 -4px 20px rgba(0,0,0,0.06)"}}>
         {TABS.map(({id,Icon,label})=>{
           const active=tab===id;
           return (
