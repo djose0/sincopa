@@ -249,8 +249,9 @@ function AuthScreen({ onAuth }) {
 
 // ─── HOUSEHOLD SCREEN ─────────────────────────────────────────────────────────
 function HouseholdScreen({ session, onHousehold, onSignOut }) {
-  const [mode,      setMode]      = useState("choose");   // choose | create | join
+  const [mode,      setMode]      = useState("choose");
   const [houseName, setHouseName] = useState("");
+  const [hType,     setHType]     = useState("individual");
   const [joinCode,  setJoinCode]  = useState("");
   const [loading,   setLoading]   = useState(false);
   const [error,     setError]     = useState("");
@@ -264,6 +265,7 @@ function HouseholdScreen({ session, onHousehold, onSignOut }) {
       name: houseName,
       invite_code: code,
       created_by: session.user.id,
+      household_type: hType,
       current_year: now.getFullYear(),
       current_month: now.getMonth()+1,
       rule: "50/30/20",
@@ -276,7 +278,6 @@ function HouseholdScreen({ session, onHousehold, onSignOut }) {
     const { data, error: e } = await SB.from("households").insert(row).select();
     if (e) { setError("Error al crear el hogar: " + e.message); setLoading(false); return; }
     const household = Array.isArray(data) ? data[0] : data;
-    // Add self as member
     await SB.from("household_members").insert({
       household_id: household.id,
       user_id: session.user.id,
@@ -349,6 +350,21 @@ function HouseholdScreen({ session, onHousehold, onSignOut }) {
             <div style={{fontFamily:FD,fontSize:20,fontWeight:700,marginBottom:18}}>Nuevo hogar</div>
             <div style={{display:"grid",gap:14}}>
               <Field label="Nombre del hogar" value={houseName} onChange={e=>setHouseName(e.target.value)} placeholder="Casa García, Nuestro hogar..."/>
+              <div>
+                <label style={{fontSize:10,fontWeight:700,color:C.muted,textTransform:"uppercase",letterSpacing:0.8,fontFamily:FB,display:"block",marginBottom:8}}>Tipo de hogar</label>
+                <div style={{display:"grid",gap:8}}>
+                  {[{v:"individual",icon:"🧍",label:"Individual",desc:"Solo yo"},{v:"pareja",icon:"👫",label:"Pareja",desc:"Dos salarios, un presupuesto"},{v:"roomies",icon:"🏠",label:"Roomies",desc:"Gastos compartidos de casa"}].map(t=>(
+                    <button key={t.v} onClick={()=>setHType(t.v)} style={{border:`1.5px solid ${hType===t.v?C.commit:C.border}`,borderRadius:12,background:hType===t.v?C.commit+"10":"transparent",padding:"10px 14px",cursor:"pointer",textAlign:"left",display:"flex",alignItems:"center",gap:12}}>
+                      <span style={{fontSize:22}}>{t.icon}</span>
+                      <div>
+                        <div style={{fontFamily:FB,fontSize:13,fontWeight:700,color:hType===t.v?C.commit:C.ink}}>{t.label}</div>
+                        <div style={{fontSize:11,color:C.muted,fontFamily:FB}}>{t.desc}</div>
+                      </div>
+                      {hType===t.v&&<Check size={16} color={C.commit} style={{marginLeft:"auto"}}/>}
+                    </button>
+                  ))}
+                </div>
+              </div>
               {error && <div style={{background:C.red+"12",border:`1px solid ${C.red}30`,borderRadius:10,padding:"10px 14px",fontSize:12,color:C.red,fontFamily:FB}}>{error}</div>}
               <Btn onClick={createHousehold} full color={C.commit} disabled={loading}>{loading?"Creando...":"Crear hogar"}</Btn>
               <Btn outline onClick={()=>{setMode("choose");setError("");}} full>Volver</Btn>
@@ -702,11 +718,12 @@ function HomeScreen({ derived, members, onHistory, onEmergency }) {
 
 // ═══════════════ GASTOS SCREEN ════════════════════════════════════════════════
 function GastosScreen({ data, derived, actions, members, myProfile }) {
-  const { needsSpent,wantsSpent,needsBudget,wantsBudget,savingsBudget,savingsExtra,activeRule,commitmentTotal,fourthActive,fourthName,fourthDisplay,fourthBudget,txFourthIn,txFourthOut } = derived;
+  const { needsSpent,wantsSpent,needsBudget,wantsBudget,savingsBudget,savingsExtra,activeRule,commitmentTotal,fourthActive,fourthName,fourthDisplay,fourthBudget,txFourthIn,txFourthOut,householdType } = derived;
   const { recurring, transactions } = data;
   const [tab,setTab]=useState("gastos");
   const [nGasto,setNGasto]=useState({name:"",amount:""});
   const [isRecurring,setIsRecurring]=useState(false);
+  const [forHouse,setForHouse]=useState(true); // roomies: is this a house expense?
   const [showQuick,setShowQuick]=useState(false);
   const [editTId,setEditTId]=useState(null);
   const [editT,setEditT]=useState({});
@@ -714,6 +731,7 @@ function GastosScreen({ data, derived, actions, members, myProfile }) {
   const [editR,setEditR]=useState({});
   const [nSav,setNSav]=useState({name:"",amount:""});
   const wantsOnly = wantsSpent - commitmentTotal;
+  const isRoomies = householdType === "roomies";
   const autoCatName = n => {
     const l=n.toLowerCase();
     if(NEEDS_KW.some(k=>l.includes(k))) return "needs";
@@ -723,9 +741,9 @@ function GastosScreen({ data, derived, actions, members, myProfile }) {
   function handleAddGasto() {
     if(!nGasto.name||!nGasto.amount) return;
     if(isRecurring) {
-      actions.addRec({icon:"📋",label:nGasto.name,amount:nGasto.amount,category:autoCatName(nGasto.name)});
+      actions.addRec({icon:"📋",label:nGasto.name,amount:nGasto.amount,category:autoCatName(nGasto.name),for_house:isRoomies?forHouse:true});
     } else {
-      actions.addTx(nGasto,"auto",()=>setNGasto({name:"",amount:""}));
+      actions.addTx({...nGasto,for_house:isRoomies?forHouse:true},"auto",()=>setNGasto({name:"",amount:""}));
     }
     setNGasto({name:"",amount:""});
     setIsRecurring(false);
@@ -751,9 +769,9 @@ function GastosScreen({ data, derived, actions, members, myProfile }) {
         })}
       </div>
 
-      {/* 2 tabs only */}
+      {/* 2 tabs (3 for roomies) */}
       <div style={{display:"flex",gap:4,marginBottom:14,background:C.card,borderRadius:14,padding:4}}>
-        {[{id:"gastos",label:"Gastos"},{id:"ahorros",label:"Ahorros"}].map(t=>(
+        {[{id:"gastos",label:"Gastos"},{id:"ahorros",label:"Ahorros"},...(isRoomies?[{id:"muro",label:"🏠 Casa"}]:[])].map(t=>(
           <button key={t.id} onClick={()=>setTab(t.id)} style={{flex:1,border:"none",borderRadius:10,fontFamily:FB,fontSize:13,fontWeight:600,padding:"10px 0",cursor:"pointer",background:tab===t.id?C.surface:"transparent",color:tab===t.id?C.ink:C.muted,boxShadow:tab===t.id?"0 1px 4px rgba(0,0,0,0.08)":"none"}}>
             {t.label}
           </button>
@@ -793,6 +811,18 @@ function GastosScreen({ data, derived, actions, members, myProfile }) {
                 <div style={{position:"absolute",top:3,left:isRecurring?26:3,width:22,height:22,borderRadius:11,background:"#fff",transition:"left 0.2s",boxShadow:"0 1px 3px rgba(0,0,0,0.2)"}}/>
               </button>
             </div>
+            {/* Roomies: para la casa toggle */}
+            {isRoomies&&(
+              <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",background:forHouse?C.commit+"10":C.bg,borderRadius:12,padding:"10px 14px",border:`1px solid ${forHouse?C.commit+"30":C.border}`}}>
+                <div>
+                  <div style={{fontFamily:FB,fontSize:13,fontWeight:600,color:forHouse?C.commit:C.muted}}>{forHouse?"🏠 Gasto de la casa":"👤 Gasto personal"}</div>
+                  <div style={{fontFamily:FB,fontSize:11,color:C.muted,marginTop:1}}>{forHouse?"Visible para todos":"Solo tuyo"}</div>
+                </div>
+                <button onClick={()=>setForHouse(p=>!p)} style={{width:52,height:28,borderRadius:14,background:forHouse?C.commit:C.border,border:"none",cursor:"pointer",position:"relative",transition:"background 0.2s",flexShrink:0}}>
+                  <div style={{position:"absolute",top:3,left:forHouse?26:3,width:22,height:22,borderRadius:11,background:"#fff",transition:"left 0.2s",boxShadow:"0 1px 3px rgba(0,0,0,0.2)"}}/>
+                </button>
+              </div>
+            )}
             {nGasto.name&&<div style={{fontSize:11,color:C.muted,fontFamily:FB,marginTop:8}}>Categoría auto → <Pill color={autoCatName(nGasto.name)==="needs"?C.needs:C.wants} small>{autoCatName(nGasto.name)==="needs"?"Necesidad":"Deseo"}</Pill></div>}
           </Card>
 
@@ -993,11 +1023,72 @@ function GastosScreen({ data, derived, actions, members, myProfile }) {
           )}
         </div>
       )}
+      {/* MURO DE APORTES — roomies only */}
+      {tab==="muro" && isRoomies && (
+        <div>
+          <Card style={{marginBottom:14,background:C.commit+"08",border:`1px solid ${C.commit}20`,padding:16}}>
+            <div style={{fontSize:11,color:C.commit,fontWeight:700,textTransform:"uppercase",letterSpacing:0.8,fontFamily:FB,marginBottom:4}}>🏠 Gastos de la casa</div>
+            <div style={{fontSize:12,color:C.muted,fontFamily:FB}}>Solo los gastos marcados "para la casa"</div>
+          </Card>
+          {/* House transactions grouped by member */}
+          {(()=>{
+            const houseTxs = transactions.filter(t=>t.for_house&&t.category!=="savings"&&t.category!=="savings_out"&&t.category!=="fourth"&&t.category!=="fourth_out");
+            const houseRec = recurring.filter(r=>r.for_house!==false&&r.active);
+            if(houseTxs.length===0&&houseRec.length===0) return (
+              <div style={{textAlign:"center",color:C.muted,fontSize:13,padding:"40px 0",fontFamily:FB}}>Sin gastos de casa este mes</div>
+            );
+            // Group by user
+            const byUser = {};
+            [...houseRec.map(r=>({...r,name:r.label,isRec:true})),...houseTxs].forEach(t=>{
+              const uid = t.user_id||"unknown";
+              if(!byUser[uid]) byUser[uid]=[];
+              byUser[uid].push(t);
+            });
+            return Object.entries(byUser).map(([uid,txs])=>{
+              const profile = members?.[uid];
+              const total = txs.reduce((s,t)=>s+(+t.amount||0),0);
+              return (
+                <div key={uid} style={{marginBottom:16}}>
+                  <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:8}}>
+                    {profile&&<Avatar emoji={profile.avatar} name={profile.name} size={24}/>}
+                    <div style={{fontFamily:FB,fontSize:13,fontWeight:700,color:C.ink}}>{profile?.name||"Usuario"}</div>
+                    <div style={{marginLeft:"auto",fontFamily:FM,fontSize:13,fontWeight:700,color:C.commit}}>{fmt(total)}</div>
+                  </div>
+                  {txs.map((t,i)=>(
+                    <div key={i} style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"8px 12px",background:C.bg,borderRadius:10,marginBottom:5}}>
+                      <div>
+                        <div style={{fontSize:13,fontFamily:FB,fontWeight:600,color:C.ink}}>{t.name||t.label}</div>
+                        {t.date&&<div style={{fontSize:10,color:C.muted,fontFamily:FB}}>{t.date}{t.isRec?" · recurrente":""}</div>}
+                      </div>
+                      <div style={{fontFamily:FM,fontSize:13,fontWeight:700,color:C.ink}}>{fmt(t.amount)}</div>
+                    </div>
+                  ))}
+                </div>
+              );
+            });
+          })()}
+          {/* Total summary */}
+          {(()=>{
+            const houseTxs = transactions.filter(t=>t.for_house&&t.category!=="savings"&&t.category!=="savings_out"&&t.category!=="fourth"&&t.category!=="fourth_out");
+            const houseRec = recurring.filter(r=>r.for_house!==false&&r.active);
+            const total = [...houseTxs,...houseRec].reduce((s,t)=>s+(+t.amount||0),0);
+            if(total===0) return null;
+            const memberCount = Object.keys(members||{}).length||1;
+            return (
+              <Card style={{marginTop:8,background:C.ink,padding:"14px 18px"}}>
+                <div style={{display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+                  <div style={{fontSize:12,color:"rgba(255,255,255,0.6)",fontFamily:FB}}>Total casa · {memberCount} roomies</div>
+                  <div style={{fontFamily:FD,fontSize:20,fontWeight:800,color:"#fff"}}>{fmt(total)}</div>
+                </div>
+                <div style={{fontSize:11,color:"rgba(255,255,255,0.4)",fontFamily:FB,marginTop:4}}>Cada quien debe aportar: {fmt(total/memberCount)}</div>
+              </Card>
+            );
+          })()}
+        </div>
+      )}
     </div>
   );
-}
-
-// ═══════════════ COMPROMISOS SCREEN ══════════════════════════════════════════
+} ══════════════════════════════════════════
 function CompromisosScreen({ data, derived, actions, members }) {
   const { commitments } = data;
   const { commitmentTotal, baseInc } = derived;
@@ -1115,8 +1206,12 @@ function CompromisosScreen({ data, derived, actions, members }) {
 }
 
 // ═══════════════ CONFIG SCREEN ════════════════════════════════════════════════
-function ConfigScreen({ data, actions, session, household, members, onSignOut }) {
-  const { salary, extras, rule, custom } = data;
+function ConfigScreen({ data, actions, session, household, members, onSignOut, derived }) {
+  const { salary, extras, rule, custom, householdType } = data;
+  const { mySalary, partnerSalary } = derived;
+  const myId = session?.user?.id;
+  const isAdmin = members?.[myId]?.role === "admin";
+  const partnerProfile = Object.values(members||{}).find(m=>m.user_id !== myId);
   const [nExtra,setNExtra]=useState({label:"",amount:""});
   const [editEId,setEditEId]=useState(null);
   const [editE,setEditE]=useState({});
@@ -1150,13 +1245,33 @@ function ConfigScreen({ data, actions, session, household, members, onSignOut })
             ))}
           </div>
         </div>
-        <div style={{display:"flex",alignItems:"center",gap:8}}>
-          <div style={{flex:1,background:C.bg,borderRadius:10,padding:"8px 12px",fontFamily:FM,fontSize:15,fontWeight:700,color:C.ink,letterSpacing:3}}>{household.invite_code}</div>
-          <button onClick={copyCode} style={{border:`1.5px solid ${C.commit}`,borderRadius:10,background:copied?C.commit+"15":"transparent",color:C.commit,fontFamily:FB,fontSize:12,fontWeight:600,padding:"8px 14px",cursor:"pointer",display:"flex",alignItems:"center",gap:5}}>
-            <Copy size={13}/>{copied?"Copiado":"Copiar"}
-          </button>
+
+        {/* Household type selector */}
+        <div style={{marginBottom:12}}>
+          <div style={{fontSize:10,color:C.muted,fontWeight:700,textTransform:"uppercase",letterSpacing:0.8,fontFamily:FB,marginBottom:8}}>Tipo de hogar</div>
+          <div style={{display:"flex",gap:6}}>
+            {[{v:"individual",icon:"🧍",label:"Individual"},{v:"pareja",icon:"👫",label:"Pareja"},{v:"roomies",icon:"🏠",label:"Roomies"}].map(t=>(
+              <button key={t.v} onClick={()=>actions.setHouseholdType(t.v)} style={{flex:1,border:`1.5px solid ${householdType===t.v?C.commit:C.border}`,borderRadius:10,background:householdType===t.v?C.commit+"12":"transparent",padding:"8px 4px",cursor:"pointer",display:"flex",flexDirection:"column",alignItems:"center",gap:2}}>
+                <span style={{fontSize:16}}>{t.icon}</span>
+                <span style={{fontSize:10,fontFamily:FB,fontWeight:700,color:householdType===t.v?C.commit:C.muted}}>{t.label}</span>
+              </button>
+            ))}
+          </div>
         </div>
-        <div style={{fontSize:11,color:C.muted,fontFamily:FB,marginTop:8}}>Comparte este código para que tu pareja se una al hogar</div>
+
+        {/* Invite code — hide for individual */}
+        {householdType !== "individual" && (
+          <>
+            <div style={{display:"flex",alignItems:"center",gap:8}}>
+              <div style={{flex:1,background:C.bg,borderRadius:10,padding:"8px 12px",fontFamily:FM,fontSize:15,fontWeight:700,color:C.ink,letterSpacing:3}}>{household.invite_code}</div>
+              <button onClick={copyCode} style={{border:`1.5px solid ${C.commit}`,borderRadius:10,background:copied?C.commit+"15":"transparent",color:C.commit,fontFamily:FB,fontSize:12,fontWeight:600,padding:"8px 14px",cursor:"pointer",display:"flex",alignItems:"center",gap:5}}>
+                <Copy size={13}/>{copied?"Copiado":"Copiar"}
+              </button>
+            </div>
+            <div style={{fontSize:11,color:C.muted,fontFamily:FB,marginTop:8}}>Comparte este código para que {householdType==="pareja"?"tu pareja":"tus roomies"} se {householdType==="pareja"?"una":"unan"}</div>
+          </>
+        )}
+
         <div style={{marginTop:12}}>
           {Object.values(members||{}).map(m=>(
             <div key={m.user_id} style={{display:"flex",alignItems:"center",gap:10,marginBottom:6}}>
@@ -1168,18 +1283,54 @@ function ConfigScreen({ data, actions, session, household, members, onSignOut })
         </div>
       </Card>
 
-      {/* Salary */}
-      <Card style={{marginBottom:14,background:!parseFloat(salary)?C.yellow+"18":C.surface,border:!parseFloat(salary)?`1.5px solid ${C.yellow}`:undefined}}>
-        <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:10}}>
-          <div style={{fontFamily:FB,fontSize:14,fontWeight:700,color:C.ink}}>💰 Ingreso mensual total</div>
-          {!parseFloat(salary)&&<Pill color={C.yellow}>Pendiente</Pill>}
-        </div>
-        <div style={{position:"relative"}}>
-          <span style={{position:"absolute",left:14,top:"50%",transform:"translateY(-50%)",fontSize:20,fontFamily:FM,color:C.muted,pointerEvents:"none"}}>$</span>
-          <input type="number" value={salary} onChange={e=>actions.setSalary(e.target.value)} placeholder="0" style={{...SI,borderRadius:14,fontFamily:FM,fontSize:28,fontWeight:800,padding:"12px 16px 12px 36px",border:`1.5px solid ${C.border}`}}/>
-        </div>
-        <div style={{fontSize:11,color:C.muted,fontFamily:FB,marginTop:8}}>Suma de todos los ingresos del hogar este mes</div>
-      </Card>
+      {/* Salary — different for pareja vs others */}
+      {householdType === "pareja" ? (
+        <Card style={{marginBottom:14}}>
+          <div style={{fontFamily:FB,fontSize:14,fontWeight:700,color:C.ink,marginBottom:14}}>💰 Salarios</div>
+          {/* Mi salario — always editable */}
+          <div style={{marginBottom:14}}>
+            <label style={{fontSize:10,fontWeight:700,color:C.muted,textTransform:"uppercase",letterSpacing:0.8,fontFamily:FB,display:"block",marginBottom:6}}>
+              {isAdmin ? "Mi salario" : "Mi salario"} {myId && members?.[myId] ? `· ${members[myId].name}` : ""}
+            </label>
+            <div style={{position:"relative"}}>
+              <span style={{position:"absolute",left:14,top:"50%",transform:"translateY(-50%)",fontSize:20,fontFamily:FM,color:C.muted,pointerEvents:"none"}}>$</span>
+              <input type="number" value={salary} onChange={e=>actions.setSalary(e.target.value)} placeholder="0" style={{...SI,borderRadius:14,fontFamily:FM,fontSize:24,fontWeight:800,padding:"10px 16px 10px 36px",border:`1.5px solid ${C.needs}`}}/>
+            </div>
+          </div>
+          {/* Salario pareja — editable solo por admin, read-only para el otro */}
+          <div>
+            <label style={{fontSize:10,fontWeight:700,color:C.muted,textTransform:"uppercase",letterSpacing:0.8,fontFamily:FB,display:"block",marginBottom:6}}>
+              Salario de {partnerProfile?.name || "tu pareja"}
+            </label>
+            {isAdmin ? (
+              <div style={{position:"relative"}}>
+                <span style={{position:"absolute",left:14,top:"50%",transform:"translateY(-50%)",fontSize:20,fontFamily:FM,color:C.muted,pointerEvents:"none"}}>$</span>
+                <input type="number" value={partnerSalary||""} onChange={e=>actions.setPartnerSalary(e.target.value)} placeholder="0" style={{...SI,borderRadius:14,fontFamily:FM,fontSize:24,fontWeight:800,padding:"10px 16px 10px 36px",border:`1.5px solid ${C.wants}`}}/>
+              </div>
+            ) : (
+              <div style={{background:C.bg,borderRadius:14,padding:"10px 16px",fontFamily:FM,fontSize:24,fontWeight:800,color:C.muted,border:`1.5px solid ${C.border}`}}>
+                {partnerSalary>0 ? `$${(+partnerSalary).toLocaleString("es-MX")}` : "—"}
+              </div>
+            )}
+            {!isAdmin&&<div style={{fontSize:11,color:C.muted,fontFamily:FB,marginTop:6}}>Tu pareja actualiza este dato</div>}
+          </div>
+          <div style={{marginTop:10,background:C.bg,borderRadius:10,padding:"8px 12px",fontSize:12,fontFamily:FB,color:C.muted}}>
+            Ingreso total del hogar: <strong style={{color:C.ink}}>${((+salary||0)+(+partnerSalary||0)).toLocaleString("es-MX")}</strong>
+          </div>
+        </Card>
+      ) : (
+        <Card style={{marginBottom:14,background:!parseFloat(salary)?C.yellow+"18":C.surface,border:!parseFloat(salary)?`1.5px solid ${C.yellow}`:undefined}}>
+          <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:10}}>
+            <div style={{fontFamily:FB,fontSize:14,fontWeight:700,color:C.ink}}>💰 Ingreso mensual total</div>
+            {!parseFloat(salary)&&<Pill color={C.yellow}>Pendiente</Pill>}
+          </div>
+          <div style={{position:"relative"}}>
+            <span style={{position:"absolute",left:14,top:"50%",transform:"translateY(-50%)",fontSize:20,fontFamily:FM,color:C.muted,pointerEvents:"none"}}>$</span>
+            <input type="number" value={salary} onChange={e=>actions.setSalary(e.target.value)} placeholder="0" style={{...SI,borderRadius:14,fontFamily:FM,fontSize:28,fontWeight:800,padding:"12px 16px 12px 36px",border:`1.5px solid ${C.border}`}}/>
+          </div>
+          <div style={{fontSize:11,color:C.muted,fontFamily:FB,marginTop:8}}>Suma de todos los ingresos del hogar este mes</div>
+        </Card>
+      )}
 
       {/* Extras */}
       <Card style={{marginBottom:14}}>
@@ -1312,6 +1463,8 @@ export default function Sincopa() {
   const [totalSavingsAccum, setTotalSavingsAccum] = useState(0);
   const [withdrawn,         setWithdrawn]         = useState(0);
   const [balanceCarryover,  setBalanceCarryover]  = useState(0);
+  const [householdType,     setHouseholdType]     = useState("individual"); // individual | pareja | roomies
+  const [partnerSalary,     setPartnerSalary]     = useState(0); // for pareja: partner's salary (read-only for non-admin)
   const [showHistory,       setShowHistory]       = useState(false);
   const [showEmergency,     setShowEmergency]     = useState(false);
 
@@ -1404,6 +1557,8 @@ export default function Sincopa() {
       setTotalSavingsAccum(st.total_savings_accum || 0);
       setWithdrawn(st.withdrawn || 0);
       setBalanceCarryover(st.balance_carryover || 0);
+      setHouseholdType(st.household_type || hh.household_type || "individual");
+      setPartnerSalary(st.partner_salary || 0);
     }
 
     // Auto-rollover check
@@ -1495,6 +1650,7 @@ export default function Sincopa() {
       fourth_active: custom.fourthActive||false, fourth_name: custom.fourthName||"", fourth_pct: custom.fourthPct||0,
       current_year: currentYear, current_month: currentMonth,
       total_savings_accum: totalSavingsAccum, withdrawn, balance_carryover: balanceCarryover,
+      household_type: householdType, partner_salary: partnerSalary,
       ...overrides,
     };
     await SB.from("household_state").upsert(st, { onConflict: "household_id" });
@@ -1525,7 +1681,8 @@ export default function Sincopa() {
 
   // ── DERIVED ──
   const activeRule      = rule==="Personalizado" ? custom : RULES[rule];
-  const baseInc         = (parseFloat(salary)||0) + extras.reduce((s,e)=>s+(+e.amount||0),0);
+  const mySalary        = parseFloat(salary)||0;
+  const baseInc         = mySalary + (householdType==="pareja" ? partnerSalary : 0) + extras.reduce((s,e)=>s+(+e.amount||0),0);
   const inc             = baseInc + balanceCarryover;
   const needsBudget     = baseInc * activeRule.needs   / 100;
   const wantsBudget     = baseInc * activeRule.wants   / 100;
@@ -1574,9 +1731,10 @@ export default function Sincopa() {
     txFourthIn, txFourthOut,
     totalBalance, monthSavings, totalSavings,
     commitmentTotal, commitmentPct,
-    isNeg, activeRule, currentMonth, currentYear
+    isNeg, activeRule, currentMonth, currentYear,
+    householdType, mySalary, partnerSalary,
   };
-  const data = { salary, extras, rule, custom, recurring, transactions, commitments, history };
+  const data = { salary, extras, rule, custom, recurring, transactions, commitments, history, householdType };
 
   // ── ACTIONS ──
   const uid = () => session?.user?.id;
@@ -1584,6 +1742,8 @@ export default function Sincopa() {
 
   const actions = {
     setSalary: async v => { setSalary(v); await saveState({ salary: parseFloat(v)||0 }); },
+    setHouseholdType: async v => { setHouseholdType(v); await saveState({ household_type: v }); },
+    setPartnerSalary: async v => { setPartnerSalary(+v||0); await saveState({ partner_salary: +v||0 }); },
     setRule:   async v => { setRule(v);   await saveState({ rule: v }); },
     setCustom: async fn => {
       const next = typeof fn==="function" ? fn(custom) : fn;
@@ -1732,7 +1892,7 @@ export default function Sincopa() {
         {tab==="home"        && <HomeScreen        derived={derived} members={members} onHistory={()=>setShowHistory(true)} onEmergency={()=>setShowEmergency(true)}/>}
         {tab==="gastos"      && <GastosScreen      data={data} derived={derived} actions={actions} members={members} myProfile={myProfile}/>}
         {tab==="compromisos" && <CompromisosScreen data={data} derived={derived} actions={actions} members={members}/>}
-        {tab==="config"      && <ConfigScreen      data={data} actions={actions} session={session} household={household} members={members} onSignOut={handleSignOut}/>}
+        {tab==="config"      && <ConfigScreen      data={data} actions={actions} session={session} household={household} members={members} onSignOut={handleSignOut} derived={derived}/>}
       </div>
 
       <div style={{position:"fixed",bottom:0,left:"50%",transform:"translateX(-50%)",width:"100%",maxWidth:480,background:C.surface,borderTop:`1px solid ${C.border}`,display:"grid",gridTemplateColumns:"repeat(4,1fr)",padding:"8px 0 16px",zIndex:100,boxShadow:"0 -4px 20px rgba(0,0,0,0.06)"}}>
