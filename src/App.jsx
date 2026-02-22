@@ -916,13 +916,6 @@ function GastosScreen({ data, derived, actions, members, myProfile }) {
         })}
       </div>
 
-      <div style={{display:"flex",gap:4,marginBottom:14,background:C.card,borderRadius:14,padding:4}}>
-        {[{id:"recurrentes",label:"Recurrentes"},{id:"puntuales",label:"Puntuales"},{id:"ahorros",label:"Ahorros"}].map(t=>(
-          <button key={t.id} onClick={()=>setTab(t.id)} style={{flex:1,border:"none",borderRadius:10,fontFamily:FB,fontSize:12,fontWeight:600,padding:"9px 0",cursor:"pointer",background:tab===t.id?C.surface:"transparent",color:tab===t.id?C.ink:C.muted,boxShadow:tab===t.id?"0 1px 4px rgba(0,0,0,0.08)":"none"}}>
-            {t.label}
-          </button>
-        ))}
-      </div>
 
 
 // ═══════════════ COMPROMISOS SCREEN ══════════════════════════════════════════
