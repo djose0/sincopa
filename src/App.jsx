@@ -288,21 +288,15 @@ function HouseholdScreen({ session, onHousehold, onSignOut }) {
     setLoading(false);
   }
 
- async function joinHousehold() {
+  async function joinHousehold() {
     if (!joinCode) { setError("Ingresa el código de invitación"); return; }
     setLoading(true); setError("");
     const { data, error: e } = await SB.from("households").select("*").eq("invite_code", joinCode.trim().toUpperCase());
     if (e || !data || data.length===0) { setError("Código no válido. Pídele el código a tu pareja."); setLoading(false); return; }
     const household = data[0];
-    
     // Check not already member
-    const { data: existing } = await SB.from("household_members")
-      .select("*")
-      .eq("household_id", household.id)
-      .eq("user_id", session.user.id);
-    
-    // Solo insertamos si el usuario no es miembro aún
-    if (!existing || existing.length === 0) {
+    const { data: existing } = await SB.from("household_members").select("*").eq("household_id", household.id, user_id: session.user.id);
+    if (!existing || existing.length===0) {
       await SB.from("household_members").insert({
         household_id: household.id,
         user_id: session.user.id,
@@ -311,7 +305,6 @@ function HouseholdScreen({ session, onHousehold, onSignOut }) {
         role: "member",
       });
     }
-
     onHousehold(household);
     setLoading(false);
   }
@@ -425,18 +418,27 @@ function CommitForm({ onSave, onClose, editing }) {
   const [monthly,setMonthly]=useState(editing?.monthly||"");
   const [quotas,setQuotas]=useState(editing?.quotas||"");
   const [paid,setPaid]=useState(editing?.paid||"0");
+  const [billingDay,setBillingDay]=useState(editing?.billing_day||"");
   const [notes,setNotes]=useState(editing?.notes||"");
   const isD = type==="deferred"||type==="loan";
 
   function submit() {
     if (!name||!monthly) return;
-    onSave({ id:editing?.id||Date.now(),name,type,monthly:parseFloat(monthly)||0,quotas:isD?parseInt(quotas)||0:null,paid:isD?parseInt(paid)||0:null,notes,payments:editing?.payments||[],date:editing?.date||todayStr(),active:true });
+    onSave({
+      id:editing?.id||Date.now(), name, type,
+      monthly:parseFloat(monthly)||0,
+      quotas:isD?parseInt(quotas)||0:null,
+      paid:isD?parseInt(paid)||0:null,
+      billing_day:parseInt(billingDay)||null,
+      notes, payments:editing?.payments||[],
+      date:editing?.date||todayStr(), active:true
+    });
     onClose();
   }
 
   return (
     <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.5)",zIndex:300,display:"flex",alignItems:"flex-end"}} onClick={onClose}>
-      <div onClick={e=>e.stopPropagation()} style={{background:C.surface,borderRadius:"24px 24px 0 0",width:"100%",maxWidth:480,margin:"0 auto",paddingBottom:40}}>
+      <div onClick={e=>e.stopPropagation()} style={{background:C.surface,borderRadius:"24px 24px 0 0",width:"100%",maxWidth:480,margin:"0 auto",paddingBottom:40,maxHeight:"90vh",overflowY:"auto"}}>
         <div style={{display:"flex",justifyContent:"center",padding:"12px 0 4px"}}><div style={{width:36,height:4,borderRadius:2,background:C.border}}/></div>
         <div style={{padding:"8px 24px 0"}}>
           <div style={{fontFamily:FD,fontSize:20,fontWeight:700,marginBottom:18}}>{editing?"Editar compromiso":"Nuevo compromiso"}</div>
@@ -450,7 +452,13 @@ function CommitForm({ onSave, onClose, editing }) {
               </select>
             </div>
             <Field label="Nombre" value={name} onChange={e=>setName(e.target.value)} placeholder="Netflix, Laptop a meses..."/>
-            <Field label="Pago mensual" type="number" prefix="$" value={monthly} onChange={e=>setMonthly(e.target.value)} placeholder="0"/>
+            <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10}}>
+              <Field label="Pago mensual" type="number" prefix="$" value={monthly} onChange={e=>setMonthly(e.target.value)} placeholder="0"/>
+              <div style={{display:"flex",flexDirection:"column",gap:4}}>
+                <label style={{fontSize:10,fontWeight:700,color:C.muted,textTransform:"uppercase",letterSpacing:0.8,fontFamily:FB}}>Día de cobro</label>
+                <input type="number" min="1" max="31" value={billingDay} onChange={e=>setBillingDay(e.target.value)} placeholder="ej. 15" style={SI}/>
+              </div>
+            </div>
             {isD && (
               <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10}}>
                 <Field label="Cuotas totales" type="number" value={quotas} onChange={e=>setQuotas(e.target.value)} placeholder="12"/>
@@ -673,17 +681,219 @@ function HomeScreen({ derived, members, onHistory, onEmergency }) {
 function GastosScreen({ data, derived, actions, members, myProfile }) {
   const { needsSpent,wantsSpent,needsBudget,wantsBudget,savingsBudget,savingsExtra,activeRule,commitmentTotal } = derived;
   const { recurring, transactions } = data;
-  const [tab,setTab]=useState("recurrentes");
-  const [showRF,setShowRF]=useState(false);
-  const [showQ,setShowQ]=useState(false);
-  const [nRec,setNRec]=useState({icon:"📋",label:"",amount:""});
-  const [editRId,setEditRId]=useState(null);
-  const [editR,setEditR]=useState({});
-  const [nTx,setNTx]=useState({name:"",amount:""});
-  const [nSav,setNSav]=useState({name:"",amount:""});
+  const [tab,setTab]=useState("gastos");
+  const [nGasto,setNGasto]=useState({name:"",amount:""});
+  const [isRecurring,setIsRecurring]=useState(false);
+  const [showQuick,setShowQuick]=useState(false);
   const [editTId,setEditTId]=useState(null);
   const [editT,setEditT]=useState({});
+  const [editRId,setEditRId]=useState(null);
+  const [editR,setEditR]=useState({});
+  const [nSav,setNSav]=useState({name:"",amount:""});
   const wantsOnly = wantsSpent - commitmentTotal;
+  const autoCatName = n => {
+    const l=n.toLowerCase();
+    if(NEEDS_KW.some(k=>l.includes(k))) return "needs";
+    return "wants";
+  };
+
+  function handleAddGasto() {
+    if(!nGasto.name||!nGasto.amount) return;
+    if(isRecurring) {
+      actions.addRec({icon:"📋",label:nGasto.name,amount:nGasto.amount,category:autoCatName(nGasto.name)});
+    } else {
+      actions.addTx(nGasto,"auto",()=>setNGasto({name:"",amount:""}));
+    }
+    setNGasto({name:"",amount:""});
+    setIsRecurring(false);
+  }
+
+  return (
+    <div style={{padding:"0 16px 100px"}}>
+      <div style={{padding:"20px 0 14px"}}>
+        <div style={{fontFamily:FD,fontSize:24,fontWeight:800,color:C.ink}}>Gastos del mes</div>
+      </div>
+
+      <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12,marginBottom:14}}>
+        {[{label:"Necesidades",spent:needsSpent,budget:needsBudget,color:C.needs},{label:"Deseos",spent:wantsOnly,budget:Math.max(0,wantsBudget-commitmentTotal),color:C.wants}].map((item,i)=>{
+          const left=item.budget-item.spent, over=left<0;
+          return (
+            <Card key={i}>
+              <div style={{fontSize:10,color:item.color,fontWeight:700,letterSpacing:0.8,textTransform:"uppercase",fontFamily:FB,marginBottom:4}}>{item.label}</div>
+              <div style={{fontFamily:FM,fontSize:16,fontWeight:800,color:over?C.red:C.ink,marginBottom:5}}>{over?"-"+fmt(Math.abs(left)):fmt(left)}<span style={{fontSize:11,fontWeight:400,color:C.muted}}> restante</span></div>
+              <Bar value={item.spent} max={item.budget||1} color={item.color}/>
+              <div style={{fontSize:10,color:C.muted,marginTop:4,fontFamily:FB}}>{fmt(item.spent)} / {fmt(item.budget)}</div>
+            </Card>
+          );
+        })}
+      </div>
+
+      {/* 2 tabs only */}
+      <div style={{display:"flex",gap:4,marginBottom:14,background:C.card,borderRadius:14,padding:4}}>
+        {[{id:"gastos",label:"Gastos"},{id:"ahorros",label:"Ahorros"}].map(t=>(
+          <button key={t.id} onClick={()=>setTab(t.id)} style={{flex:1,border:"none",borderRadius:10,fontFamily:FB,fontSize:13,fontWeight:600,padding:"10px 0",cursor:"pointer",background:tab===t.id?C.surface:"transparent",color:tab===t.id?C.ink:C.muted,boxShadow:tab===t.id?"0 1px 4px rgba(0,0,0,0.08)":"none"}}>
+            {t.label}
+          </button>
+        ))}
+      </div>
+
+      {/* GASTOS TAB */}
+      {tab==="gastos" && (
+        <div>
+          {/* Unified entry form */}
+          <Card style={{marginBottom:14,padding:16}}>
+            {/* Quick templates */}
+            <button onClick={()=>setShowQuick(p=>!p)} style={{border:`1.5px solid ${C.border}`,borderRadius:10,background:"transparent",color:C.muted,fontFamily:FB,fontSize:11,fontWeight:600,padding:"5px 12px",cursor:"pointer",marginBottom:10,display:"flex",alignItems:"center",gap:5}}>
+              ⚡ Plantillas {showQuick?"▲":"▼"}
+            </button>
+            {showQuick&&(
+              <div style={{display:"flex",flexWrap:"wrap",gap:6,marginBottom:10}}>
+                {QUICK.filter(q=>!recurring.find(r=>r.label===q.label)).map(q=>(
+                  <button key={q.label} onClick={()=>{setNGasto({name:q.label,amount:""});setIsRecurring(true);setShowQuick(false);}} style={{border:`1.5px solid ${C.needs}30`,borderRadius:20,background:C.needs+"08",color:C.needs,fontFamily:FB,fontSize:11,fontWeight:600,padding:"5px 10px",cursor:"pointer"}}>
+                    {q.icon} {q.label}
+                  </button>
+                ))}
+              </div>
+            )}
+            <div style={{display:"grid",gridTemplateColumns:"1fr 90px 36px",gap:8,marginBottom:12}}>
+              <input placeholder="¿En qué gastaste?" value={nGasto.name} onChange={e=>setNGasto(p=>({...p,name:e.target.value}))} onKeyDown={e=>e.key==="Enter"&&handleAddGasto()} style={SI}/>
+              <input type="number" placeholder="$" value={nGasto.amount} onChange={e=>setNGasto(p=>({...p,amount:e.target.value}))} onKeyDown={e=>e.key==="Enter"&&handleAddGasto()} style={{...SI,width:90,textAlign:"right"}}/>
+              <button onClick={handleAddGasto} style={{border:"none",background:isRecurring?C.needs:C.ink,borderRadius:10,width:36,height:38,display:"flex",alignItems:"center",justifyContent:"center",cursor:"pointer"}}><Plus size={16} color="white"/></button>
+            </div>
+            {/* Toggle recurrente/puntual */}
+            <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",background:C.bg,borderRadius:12,padding:"10px 14px"}}>
+              <div>
+                <div style={{fontFamily:FB,fontSize:13,fontWeight:600,color:isRecurring?C.needs:C.ink}}>{isRecurring?"Gasto recurrente":"Gasto puntual"}</div>
+                <div style={{fontFamily:FB,fontSize:11,color:C.muted,marginTop:1}}>{isRecurring?"Se sumará todos los meses":"Solo este mes"}</div>
+              </div>
+              <button onClick={()=>setIsRecurring(p=>!p)} style={{width:52,height:28,borderRadius:14,background:isRecurring?C.needs:C.border,border:"none",cursor:"pointer",position:"relative",transition:"background 0.2s",flexShrink:0}}>
+                <div style={{position:"absolute",top:3,left:isRecurring?26:3,width:22,height:22,borderRadius:11,background:"#fff",transition:"left 0.2s",boxShadow:"0 1px 3px rgba(0,0,0,0.2)"}}/>
+              </button>
+            </div>
+            {nGasto.name&&<div style={{fontSize:11,color:C.muted,fontFamily:FB,marginTop:8}}>Categoría auto → <Pill color={autoCatName(nGasto.name)==="needs"?C.needs:C.wants} small>{autoCatName(nGasto.name)==="needs"?"Necesidad":"Deseo"}</Pill></div>}
+          </Card>
+
+          {/* Recurring items */}
+          {recurring.length>0&&(
+            <div style={{marginBottom:8}}>
+              <div style={{fontSize:11,fontWeight:700,color:C.muted,textTransform:"uppercase",letterSpacing:0.8,fontFamily:FB,marginBottom:8}}>Recurrentes este mes</div>
+              {recurring.map(r=>(
+                <Card key={r.id} style={{marginBottom:8,padding:"13px 16px"}}>
+                  {editRId===r.id?(
+                    <div style={{display:"grid",gridTemplateColumns:"40px 1fr 90px 32px",gap:8,alignItems:"center"}}>
+                      <input value={editR.icon} onChange={e=>setEditR(p=>({...p,icon:e.target.value}))} style={{...SI,width:40,textAlign:"center",fontSize:18,padding:"6px 4px"}}/>
+                      <input value={editR.label} onChange={e=>setEditR(p=>({...p,label:e.target.value}))} style={SI}/>
+                      <input type="number" value={editR.amount} onChange={e=>setEditR(p=>({...p,amount:e.target.value}))} style={{...SI,width:90,textAlign:"right"}}/>
+                      <button onClick={()=>{actions.saveRec(r.id,editR);setEditRId(null);}} style={{border:"none",background:C.savings,borderRadius:8,width:32,height:38,display:"flex",alignItems:"center",justifyContent:"center",cursor:"pointer"}}><Check size={14} color="white"/></button>
+                    </div>
+                  ):(
+                    <div>
+                      <div style={{display:"flex",alignItems:"center",gap:10}}>
+                        <span style={{fontSize:18,opacity:r.active?1:0.4}}>{r.icon}</span>
+                        <div style={{flex:1,opacity:r.active?1:0.5}}>
+                          <div style={{fontSize:13,fontWeight:600,color:C.ink,fontFamily:FB}}>{r.label}</div>
+                          <div style={{display:"flex",alignItems:"center",gap:6,marginTop:2,flexWrap:"wrap"}}>
+                            <Pill color={r.category==="needs"?C.needs:C.wants} small>{r.category==="needs"?"Necesidad":"Deseo"}</Pill>
+                            {r.user_id&&members?.[r.user_id]&&<AuthorTag profile={members[r.user_id]}/>}
+                          </div>
+                        </div>
+                        <button onClick={()=>actions.toggleRec(r.id)} style={{border:`1.5px solid ${r.active?C.needs:C.border}`,borderRadius:8,background:r.active?C.needs+"15":"transparent",color:r.active?C.needs:C.muted,fontFamily:FB,fontSize:11,fontWeight:600,padding:"4px 10px",cursor:"pointer"}}>{r.active?"ON":"OFF"}</button>
+                        <div style={{fontFamily:FM,fontSize:14,fontWeight:700,color:r.active?C.ink:C.muted}}>{fmt(r.amount)}</div>
+                        <div style={{display:"flex",gap:4}}>
+                          <button onClick={()=>{setEditRId(r.id);setEditR({icon:r.icon,label:r.label,amount:r.amount});}} style={{border:`1.5px solid ${C.border}`,borderRadius:8,background:"transparent",padding:6,cursor:"pointer",display:"flex"}}><Pencil size={12} color={C.muted}/></button>
+                          <button onClick={()=>actions.delRec(r.id)} style={{border:`1.5px solid ${C.border}`,borderRadius:8,background:"transparent",padding:6,cursor:"pointer",display:"flex"}}><Trash2 size={12} color={C.red}/></button>
+                        </div>
+                      </div>
+                      <div style={{paddingTop:8,borderTop:`1px solid ${C.border}`,marginTop:8}}>
+                        <PayHistory payments={r.payments} profiles={members} color={C.needs} onMark={()=>actions.markRecPaid(r.id)} labelPaid="✓ Pagado hoy" labelMark="Marcar pagado"/>
+                      </div>
+                    </div>
+                  )}
+                </Card>
+              ))}
+            </div>
+          )}
+
+          {/* One-time transactions */}
+          {transactions.filter(t=>t.category!=="savings").length>0&&(
+            <div>
+              <div style={{fontSize:11,fontWeight:700,color:C.muted,textTransform:"uppercase",letterSpacing:0.8,fontFamily:FB,marginBottom:8}}>Puntuales</div>
+              {transactions.filter(t=>t.category!=="savings").map(tx=>(
+                <Card key={tx.id} style={{marginBottom:8,padding:"13px 16px"}}>
+                  {editTId===tx.id?(
+                    <div style={{display:"grid",gridTemplateColumns:"1fr 90px 80px 32px",gap:8,alignItems:"center"}}>
+                      <input value={editT.name} onChange={e=>setEditT(p=>({...p,name:e.target.value}))} style={SI}/>
+                      <input type="number" value={editT.amount} onChange={e=>setEditT(p=>({...p,amount:e.target.value}))} style={{...SI,width:90,textAlign:"right"}}/>
+                      <select value={editT.category} onChange={e=>setEditT(p=>({...p,category:e.target.value}))} style={{...SI,padding:"8px",width:80}}>
+                        <option value="needs">Necesidad</option>
+                        <option value="wants">Deseo</option>
+                      </select>
+                      <button onClick={()=>{actions.saveTx(tx.id,editT);setEditTId(null);}} style={{border:"none",background:C.savings,borderRadius:8,width:32,height:38,display:"flex",alignItems:"center",justifyContent:"center",cursor:"pointer"}}><Check size={14} color="white"/></button>
+                    </div>
+                  ):(
+                    <div style={{display:"flex",alignItems:"center",gap:10}}>
+                      <div style={{flex:1}}>
+                        <div style={{fontSize:13,fontWeight:600,color:C.ink,fontFamily:FB}}>{tx.name}</div>
+                        <div style={{display:"flex",alignItems:"center",gap:6,marginTop:2,flexWrap:"wrap"}}>
+                          <span style={{fontSize:10,color:C.muted,fontFamily:FB}}>{tx.date}</span>
+                          <Pill color={tx.category==="needs"?C.needs:C.wants} small>{tx.category==="needs"?"Necesidad":"Deseo"}</Pill>
+                          {tx.user_id&&members?.[tx.user_id]&&<AuthorTag profile={members[tx.user_id]}/>}
+                        </div>
+                      </div>
+                      <div style={{fontFamily:FM,fontSize:15,fontWeight:700,color:C.ink}}>-{fmt(tx.amount)}</div>
+                      <div style={{display:"flex",gap:4}}>
+                        <button onClick={()=>{setEditTId(tx.id);setEditT({name:tx.name,amount:tx.amount,category:tx.category});}} style={{border:`1.5px solid ${C.border}`,borderRadius:8,background:"transparent",padding:6,cursor:"pointer",display:"flex"}}><Pencil size={12} color={C.muted}/></button>
+                        <button onClick={()=>actions.delTx(tx.id)} style={{border:`1.5px solid ${C.border}`,borderRadius:8,background:"transparent",padding:6,cursor:"pointer",display:"flex"}}><Trash2 size={12} color={C.red}/></button>
+                      </div>
+                    </div>
+                  )}
+                </Card>
+              ))}
+            </div>
+          )}
+          {recurring.length===0&&transactions.filter(t=>t.category!=="savings").length===0&&(
+            <div style={{textAlign:"center",color:C.muted,fontSize:13,padding:"32px 0",fontFamily:FB}}>Agrega tu primer gasto del mes</div>
+          )}
+        </div>
+      )}
+
+      {/* AHORROS TAB */}
+      {tab==="ahorros" && (
+        <div>
+          <Card style={{marginBottom:14,background:C.savings+"10",border:`1px solid ${C.savings}25`,padding:16}}>
+            <div style={{fontSize:11,color:C.savings,fontWeight:700,textTransform:"uppercase",letterSpacing:0.8,fontFamily:FB,marginBottom:4}}>Ahorros automáticos</div>
+            <div style={{fontSize:12,color:C.muted,fontFamily:FB,lineHeight:1.6}}>El <strong style={{color:C.savings}}>{activeRule.savings}%</strong> del ingreso se reserva automáticamente. Aquí registras abonos extra.</div>
+          </Card>
+          <Card style={{marginBottom:12,padding:14}}>
+            <div style={{fontSize:13,fontWeight:700,color:C.ink,fontFamily:FB,marginBottom:10}}>Abono extra a ahorros</div>
+            <div style={{display:"grid",gridTemplateColumns:"1fr 90px 36px",gap:8,marginBottom:6}}>
+              <input placeholder="Descripción" value={nSav.name} onChange={e=>setNSav(p=>({...p,name:e.target.value}))} style={SI}/>
+              <input type="number" placeholder="$" value={nSav.amount} onChange={e=>setNSav(p=>({...p,amount:e.target.value}))} style={{...SI,width:90,textAlign:"right"}}/>
+              <button onClick={()=>actions.addTx(nSav,"savings",()=>setNSav({name:"",amount:""}))} style={{border:"none",background:C.savings,borderRadius:10,width:36,height:38,display:"flex",alignItems:"center",justifyContent:"center",cursor:"pointer"}}><Plus size={16} color="white"/></button>
+            </div>
+          </Card>
+          {transactions.filter(t=>t.category==="savings").map(tx=>(
+            <Card key={tx.id} style={{marginBottom:8,padding:"13px 16px"}}>
+              <div style={{display:"flex",alignItems:"center",gap:10}}>
+                <div style={{flex:1}}>
+                  <div style={{fontSize:13,fontWeight:600,color:C.ink,fontFamily:FB}}>{tx.name}</div>
+                  <div style={{display:"flex",alignItems:"center",gap:6,marginTop:2}}>
+                    <span style={{fontSize:10,color:C.muted,fontFamily:FB}}>{tx.date}</span>
+                    <Pill color={C.savings} small>Ahorro extra</Pill>
+                    {tx.user_id&&members?.[tx.user_id]&&<AuthorTag profile={members[tx.user_id]}/>}
+                  </div>
+                </div>
+                <div style={{fontFamily:FM,fontSize:15,fontWeight:700,color:C.savings}}>+{fmt(tx.amount)}</div>
+                <button onClick={()=>actions.delTx(tx.id)} style={{border:`1.5px solid ${C.border}`,borderRadius:8,background:"transparent",padding:6,cursor:"pointer",display:"flex"}}><Trash2 size={12} color={C.red}/></button>
+              </div>
+            </Card>
+          ))}
+          {transactions.filter(t=>t.category==="savings").length===0&&<div style={{textAlign:"center",color:C.muted,fontSize:13,padding:"32px 0",fontFamily:FB}}>Sin abonos extra este mes</div>}
+        </div>
+      )}
+    </div>
+  );
+}
 
   return (
     <div style={{padding:"0 16px 100px"}}>
@@ -714,158 +924,6 @@ function GastosScreen({ data, derived, actions, members, myProfile }) {
         ))}
       </div>
 
-      {/* RECURRENTES */}
-      {tab==="recurrentes" && (
-        <div>
-          <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:12}}>
-            <div style={{fontSize:13,fontWeight:600,color:C.ink,fontFamily:FB}}>Gastos fijos</div>
-            <div style={{display:"flex",gap:8}}>
-              <Btn small outline onClick={()=>{setShowQ(p=>!p);setShowRF(false);}}>Plantillas</Btn>
-              <Btn small onClick={()=>{setShowRF(p=>!p);setShowQ(false);}}>+ Nuevo</Btn>
-            </div>
-          </div>
-          {showQ && (
-            <Card style={{marginBottom:12,padding:14}}>
-              <div style={{fontSize:10,color:C.muted,textTransform:"uppercase",fontFamily:FB,marginBottom:10}}>Toca para agregar</div>
-              <div style={{display:"flex",flexWrap:"wrap",gap:8}}>
-                {QUICK.filter(t=>!recurring.find(r=>r.label===t.label)).map(tpl=>(
-                  <button key={tpl.label} onClick={()=>{actions.addFromTpl(tpl);setShowQ(false);}} style={{border:`1.5px solid ${C.needs}30`,borderRadius:20,background:C.needs+"08",color:C.needs,fontFamily:FB,fontSize:12,fontWeight:600,padding:"7px 14px",cursor:"pointer",display:"flex",alignItems:"center",gap:5}}>{tpl.icon} {tpl.label}</button>
-                ))}
-              </div>
-            </Card>
-          )}
-          {showRF && (
-            <Card style={{marginBottom:12,padding:14}}>
-              <div style={{display:"grid",gridTemplateColumns:"40px 1fr 90px 32px",gap:8,alignItems:"center"}}>
-                <input value={nRec.icon} onChange={e=>setNRec(p=>({...p,icon:e.target.value}))} style={{...SI,width:40,textAlign:"center",fontSize:18,padding:"6px 4px"}}/>
-                <input placeholder="Nombre" value={nRec.label} onChange={e=>setNRec(p=>({...p,label:e.target.value}))} style={SI}/>
-                <input type="number" placeholder="$" value={nRec.amount} onChange={e=>setNRec(p=>({...p,amount:e.target.value}))} style={{...SI,width:90,textAlign:"right"}}/>
-                <button onClick={()=>{actions.addRec(nRec);setNRec({icon:"📋",label:"",amount:""});setShowRF(false);}} style={{border:"none",background:C.savings,borderRadius:8,width:32,height:38,display:"flex",alignItems:"center",justifyContent:"center",cursor:"pointer"}}><Check size={14} color="white"/></button>
-              </div>
-            </Card>
-          )}
-          {recurring.map(r=>(
-            <Card key={r.id} style={{marginBottom:10,padding:"14px 16px"}}>
-              {editRId===r.id ? (
-                <div style={{display:"grid",gridTemplateColumns:"40px 1fr 90px 32px",gap:8,alignItems:"center"}}>
-                  <input value={editR.icon} onChange={e=>setEditR(p=>({...p,icon:e.target.value}))} style={{...SI,width:40,textAlign:"center",fontSize:18,padding:"6px 4px"}}/>
-                  <input value={editR.label} onChange={e=>setEditR(p=>({...p,label:e.target.value}))} style={SI}/>
-                  <input type="number" value={editR.amount} onChange={e=>setEditR(p=>({...p,amount:e.target.value}))} style={{...SI,width:90,textAlign:"right"}}/>
-                  <button onClick={()=>{actions.saveRec(r.id,editR);setEditRId(null);}} style={{border:"none",background:C.savings,borderRadius:8,width:32,height:38,display:"flex",alignItems:"center",justifyContent:"center",cursor:"pointer"}}><Check size={14} color="white"/></button>
-                </div>
-              ) : (
-                <div>
-                  <div style={{display:"flex",alignItems:"center",gap:10}}>
-                    <span style={{fontSize:20,opacity:r.active?1:0.4}}>{r.icon}</span>
-                    <div style={{flex:1,opacity:r.active?1:0.5}}>
-                      <div style={{fontSize:14,fontWeight:600,color:C.ink,fontFamily:FB}}>{r.label}</div>
-                      <div style={{display:"flex",alignItems:"center",gap:6,marginTop:2,flexWrap:"wrap"}}>
-                        <Pill color={C.needs} small>Necesidad</Pill>
-                        {r.date&&<span style={{fontSize:10,color:C.muted,fontFamily:FB}}>Desde {r.date}</span>}
-                        {r.user_id && members?.[r.user_id] && <AuthorTag profile={members[r.user_id]}/>}
-                      </div>
-                    </div>
-                    <button onClick={()=>actions.toggleRec(r.id)} style={{border:`1.5px solid ${r.active?C.needs:C.border}`,borderRadius:8,background:r.active?C.needs+"15":"transparent",color:r.active?C.needs:C.muted,fontFamily:FB,fontSize:11,fontWeight:600,padding:"4px 10px",cursor:"pointer"}}>{r.active?"ON":"OFF"}</button>
-                    <div style={{fontFamily:FM,fontSize:15,fontWeight:700,color:r.active?C.ink:C.muted,minWidth:54,textAlign:"right"}}>{+r.amount>0?fmt(r.amount):<span style={{color:C.border,fontSize:11}}>—</span>}</div>
-                    <div style={{display:"flex",gap:4}}>
-                      <button onClick={()=>{setEditRId(r.id);setEditR({icon:r.icon,label:r.label,amount:r.amount});}} style={{border:`1.5px solid ${C.border}`,borderRadius:8,background:"transparent",padding:6,cursor:"pointer",display:"flex"}}><Pencil size={12} color={C.muted}/></button>
-                      <button onClick={()=>actions.delRec(r.id)} style={{border:`1.5px solid ${C.border}`,borderRadius:8,background:"transparent",padding:6,cursor:"pointer",display:"flex"}}><Trash2 size={12} color={C.red}/></button>
-                    </div>
-                  </div>
-                  <div style={{paddingTop:10,borderTop:`1px solid ${C.border}`,marginTop:10}}>
-                    <PayHistory payments={r.payments} profiles={members} color={C.needs} onMark={()=>actions.markRecPaid(r.id)} labelPaid="✓ Pagado hoy" labelMark="Marcar como pagado"/>
-                  </div>
-                </div>
-              )}
-            </Card>
-          ))}
-          {recurring.length===0&&!showQ&&!showRF&&<div style={{textAlign:"center",color:C.muted,fontSize:13,padding:"32px 0",fontFamily:FB}}>Agrega tus gastos fijos: renta, luz, agua...</div>}
-        </div>
-      )}
-
-      {/* PUNTUALES */}
-      {tab==="puntuales" && (
-        <div>
-          <Card style={{marginBottom:12,padding:14}}>
-            <div style={{display:"grid",gridTemplateColumns:"1fr 90px 36px",gap:8,marginBottom:8}}>
-              <input placeholder="Pizza, taxis, ropa..." value={nTx.name} onChange={e=>setNTx(p=>({...p,name:e.target.value}))} onKeyDown={e=>e.key==="Enter"&&actions.addTx(nTx,"auto",setNTx)} style={SI}/>
-              <input type="number" placeholder="$" value={nTx.amount} onChange={e=>setNTx(p=>({...p,amount:e.target.value}))} onKeyDown={e=>e.key==="Enter"&&actions.addTx(nTx,"auto",setNTx)} style={{...SI,width:90,textAlign:"right"}}/>
-              <button onClick={()=>actions.addTx(nTx,"auto",setNTx)} style={{border:"none",background:C.ink,borderRadius:10,width:36,height:38,display:"flex",alignItems:"center",justifyContent:"center",cursor:"pointer"}}><Plus size={16} color="white"/></button>
-            </div>
-            {nTx.name&&<div style={{fontSize:11,color:C.muted,fontFamily:FB}}>Auto → <Pill color={autoCat(nTx.name)==="needs"?C.needs:C.wants} small>{autoCat(nTx.name)==="needs"?"Necesidad":"Deseo"}</Pill></div>}
-          </Card>
-          {transactions.filter(t=>t.category!=="savings").map(tx=>(
-            <Card key={tx.id} style={{marginBottom:8,padding:"13px 16px"}}>
-              {editTId===tx.id ? (
-                <div style={{display:"grid",gridTemplateColumns:"1fr 90px 80px 32px",gap:8,alignItems:"center"}}>
-                  <input value={editT.name} onChange={e=>setEditT(p=>({...p,name:e.target.value}))} style={SI}/>
-                  <input type="number" value={editT.amount} onChange={e=>setEditT(p=>({...p,amount:e.target.value}))} style={{...SI,width:90,textAlign:"right"}}/>
-                  <select value={editT.category} onChange={e=>setEditT(p=>({...p,category:e.target.value}))} style={{...SI,padding:"8px",width:80}}>
-                    <option value="needs">Necesidad</option>
-                    <option value="wants">Deseo</option>
-                  </select>
-                  <button onClick={()=>{actions.saveTx(tx.id,editT);setEditTId(null);}} style={{border:"none",background:C.savings,borderRadius:8,width:32,height:38,display:"flex",alignItems:"center",justifyContent:"center",cursor:"pointer"}}><Check size={14} color="white"/></button>
-                </div>
-              ) : (
-                <div style={{display:"flex",alignItems:"center",gap:10}}>
-                  <div style={{flex:1}}>
-                    <div style={{fontSize:14,fontWeight:600,color:C.ink,fontFamily:FB}}>{tx.name}</div>
-                    <div style={{display:"flex",alignItems:"center",gap:6,marginTop:2,flexWrap:"wrap"}}>
-                      <span style={{fontSize:10,color:C.muted,fontFamily:FB}}>{tx.date}</span>
-                      <Pill color={tx.category==="needs"?C.needs:C.wants} small>{tx.category==="needs"?"Necesidad":"Deseo"}</Pill>
-                      {tx.user_id && members?.[tx.user_id] && <AuthorTag profile={members[tx.user_id]}/>}
-                    </div>
-                  </div>
-                  <div style={{fontFamily:FM,fontSize:16,fontWeight:700,color:C.ink}}>-{fmt(tx.amount)}</div>
-                  <div style={{display:"flex",gap:4}}>
-                    <button onClick={()=>{setEditTId(tx.id);setEditT({name:tx.name,amount:tx.amount,category:tx.category});}} style={{border:`1.5px solid ${C.border}`,borderRadius:8,background:"transparent",padding:6,cursor:"pointer",display:"flex"}}><Pencil size={12} color={C.muted}/></button>
-                    <button onClick={()=>actions.delTx(tx.id)} style={{border:`1.5px solid ${C.border}`,borderRadius:8,background:"transparent",padding:6,cursor:"pointer",display:"flex"}}><Trash2 size={12} color={C.red}/></button>
-                  </div>
-                </div>
-              )}
-            </Card>
-          ))}
-          {transactions.filter(t=>t.category!=="savings").length===0&&<div style={{textAlign:"center",color:C.muted,fontSize:13,padding:"32px 0",fontFamily:FB}}>Sin gastos puntuales este mes</div>}
-        </div>
-      )}
-
-      {/* AHORROS */}
-      {tab==="ahorros" && (
-        <div>
-          <Card style={{marginBottom:14,background:C.savings+"10",border:`1px solid ${C.savings}25`,padding:16}}>
-            <div style={{fontSize:11,color:C.savings,fontWeight:700,textTransform:"uppercase",letterSpacing:0.8,fontFamily:FB,marginBottom:6}}>Ahorros automáticos</div>
-            <div style={{fontSize:12,color:C.muted,fontFamily:FB,lineHeight:1.6}}>Tu presupuesto reserva el <strong style={{color:C.savings}}>{activeRule.savings}%</strong> automáticamente. Aquí registras abonos extra.</div>
-          </Card>
-          <Card style={{marginBottom:12,padding:14}}>
-            <div style={{fontSize:13,fontWeight:700,color:C.ink,fontFamily:FB,marginBottom:10}}>Abono extra</div>
-            <div style={{display:"grid",gridTemplateColumns:"1fr 90px 36px",gap:8,marginBottom:6}}>
-              <input placeholder="Descripción" value={nSav.name} onChange={e=>setNSav(p=>({...p,name:e.target.value}))} onKeyDown={e=>e.key==="Enter"&&actions.addTx(nSav,"savings",setNSav)} style={SI}/>
-              <input type="number" placeholder="$" value={nSav.amount} onChange={e=>setNSav(p=>({...p,amount:e.target.value}))} onKeyDown={e=>e.key==="Enter"&&actions.addTx(nSav,"savings",setNSav)} style={{...SI,width:90,textAlign:"right"}}/>
-              <button onClick={()=>actions.addTx(nSav,"savings",setNSav)} style={{border:"none",background:C.savings,borderRadius:10,width:36,height:38,display:"flex",alignItems:"center",justifyContent:"center",cursor:"pointer"}}><Plus size={16} color="white"/></button>
-            </div>
-          </Card>
-          {transactions.filter(t=>t.category==="savings").map(tx=>(
-            <Card key={tx.id} style={{marginBottom:8,padding:"13px 16px"}}>
-              <div style={{display:"flex",alignItems:"center",gap:10}}>
-                <div style={{flex:1}}>
-                  <div style={{fontSize:14,fontWeight:600,color:C.ink,fontFamily:FB}}>{tx.name}</div>
-                  <div style={{display:"flex",alignItems:"center",gap:6,marginTop:2}}>
-                    <span style={{fontSize:10,color:C.muted,fontFamily:FB}}>{tx.date}</span>
-                    <Pill color={C.savings} small>Ahorro extra</Pill>
-                    {tx.user_id && members?.[tx.user_id] && <AuthorTag profile={members[tx.user_id]}/>}
-                  </div>
-                </div>
-                <div style={{fontFamily:FM,fontSize:16,fontWeight:700,color:C.savings}}>+{fmt(tx.amount)}</div>
-                <button onClick={()=>actions.delTx(tx.id)} style={{border:`1.5px solid ${C.border}`,borderRadius:8,background:"transparent",padding:6,cursor:"pointer",display:"flex"}}><Trash2 size={12} color={C.red}/></button>
-              </div>
-            </Card>
-          ))}
-          {transactions.filter(t=>t.category==="savings").length===0&&<div style={{textAlign:"center",color:C.muted,fontSize:13,padding:"32px 0",fontFamily:FB}}>Sin abonos extra este mes</div>}
-        </div>
-      )}
-    </div>
-  );
-}
 
 // ═══════════════ COMPROMISOS SCREEN ══════════════════════════════════════════
 function CompromisosScreen({ data, derived, actions, members }) {
@@ -874,7 +932,9 @@ function CompromisosScreen({ data, derived, actions, members }) {
   const [showForm,setShowForm]=useState(false);
   const [editing,setEditing]=useState(null);
   const [amortItem,setAmortItem]=useState(null);
+  const today = new Date().getDate();
   const groups = [{label:"Suscripciones",icon:"🔄",type:"subscription"},{label:"Diferidos",icon:"💳",type:"deferred"},{label:"Préstamos",icon:"🏦",type:"loan"}];
+  const dueToday = commitments.filter(c=>c.billing_day===today&&!(c.payments||[]).some(p=>p.date===todayStr()));
 
   return (
     <div style={{padding:"0 16px 100px"}}>
@@ -887,6 +947,20 @@ function CompromisosScreen({ data, derived, actions, members }) {
         </div>
         <Btn onClick={()=>{setEditing(null);setShowForm(true);}} color={C.commit}>+ Nuevo</Btn>
       </div>
+      {dueToday.length>0&&(
+        <Card style={{marginBottom:14,background:C.red+"10",border:`1.5px solid ${C.red}30`,padding:"14px 16px"}}>
+          <div style={{fontFamily:FB,fontSize:13,fontWeight:700,color:C.red,marginBottom:8}}>⚠ Cobros de hoy</div>
+          {dueToday.map(c=>(
+            <div key={c.id} style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:6}}>
+              <span style={{fontFamily:FB,fontSize:13,color:C.ink}}>{c.name}</span>
+              <div style={{display:"flex",alignItems:"center",gap:10}}>
+                <span style={{fontFamily:FM,fontSize:13,fontWeight:700,color:C.red}}>-{fmt(c.monthly)}</span>
+                <button onClick={()=>actions.markCommitmentPaid(c.id)} style={{border:`1.5px solid ${C.red}`,borderRadius:8,background:"transparent",color:C.red,fontFamily:FB,fontSize:11,fontWeight:600,padding:"4px 10px",cursor:"pointer"}}>Marcar pagado</button>
+              </div>
+            </div>
+          ))}
+        </Card>
+      )}
       <Card style={{background:C.commit+"10",border:`1px solid ${C.commit}20`,marginBottom:16}}>
         <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:10}}>
           <div>
@@ -913,8 +987,9 @@ function CompromisosScreen({ data, derived, actions, members }) {
             {items.map(c=>{
               const isD=c.type==="deferred"||c.type==="loan";
               const rem=isD?(c.quotas||0)-(c.paid||0):null;
+              const isDueToday=c.billing_day===today&&!(c.payments||[]).some(p=>p.date===todayStr());
               return (
-                <Card key={c.id} style={{marginBottom:10,padding:"15px 17px"}}>
+                <Card key={c.id} style={{marginBottom:10,padding:"15px 17px",border:isDueToday?`2px solid ${C.red}`:undefined}}>
                   <div style={{display:"flex",alignItems:"flex-start",gap:10}}>
                     <span style={{fontSize:22,flexShrink:0}}>{g.icon}</span>
                     <div style={{flex:1}}>
@@ -924,6 +999,7 @@ function CompromisosScreen({ data, derived, actions, members }) {
                       </div>
                       <div style={{display:"flex",alignItems:"center",gap:6,marginBottom:6,flexWrap:"wrap"}}>
                         {c.date&&<span style={{fontSize:10,color:C.muted,fontFamily:FB}}>Desde {c.date}</span>}
+                        {c.billing_day&&<Pill color={isDueToday?C.red:C.muted} small>{isDueToday?"⚠ Cobro hoy":"📅 Día "+c.billing_day}</Pill>}
                         {c.user_id && members?.[c.user_id] && <AuthorTag profile={members[c.user_id]}/>}
                       </div>
                       {isD&&c.quotas>0&&(
