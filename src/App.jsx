@@ -1304,8 +1304,8 @@ function HogarScreen({ data, derived, actions, members, session, household }) {
 
   // ── ROOMIES VIEW ──
   const SHARED_SERVICES = ["renta","internet","luz","agua","gas"];
-  const [splits, setSplits] = React.useState({}); // { label: "equal"|{uid:pct} }
-  const [splitActive, setSplitActive] = React.useState({}); // { label: bool }
+  const [splits, setSplits] = useState({});
+  const [splitActive, setSplitActive] = useState({});
 
   const houseTxs = transactions.filter(t=>t.for_house&&t.category!=="savings"&&t.category!=="savings_out"&&t.category!=="fourth"&&t.category!=="fourth_out");
   const houseRec = recurring.filter(r=>r.for_house!==false&&r.active);
