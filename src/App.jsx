@@ -573,18 +573,20 @@ function PayHistory({ payments, profiles, color, onMark, labelPaid, labelMark })
 
 // ═══════════════ HOME SCREEN ══════════════════════════════════════════════════
 function HomeScreen({ derived, members, onHistory, onEmergency }) {
-  const { baseInc,balanceCarryover,needsSpent,wantsSpent,savingsExtra,needsBudget,wantsBudget,savingsBudget,fourthBudget,fourthName,fourthActive,txFourth,totalBalance,monthSavings,totalSavings,commitmentTotal,commitmentPct,isNeg,activeRule,currentMonth,currentYear } = derived;
+  const { baseInc,balanceCarryover,needsSpent,wantsSpent,savingsExtra,needsBudget,wantsBudget,savingsBudget,savingsDisplay,fourthBudget,fourthName,fourthActive,fourthDisplay,fourthUsed,txFourthIn,txFourthOut,totalBalance,monthSavings,totalSavings,commitmentTotal,commitmentPct,isNeg,activeRule,currentMonth,currentYear } = derived;
   const totalSpent = needsSpent + wantsSpent;
-  const spentPct = baseInc>0 ? clamp(Math.round(totalSpent/baseInc*100),0,100) : 0;
+  const spentPct = baseInc>0 ? clamp(Math.round((totalSpent+savingsDisplay+(fourthActive?fourthBudget:0))/baseInc*100),0,100) : 0;
   const segs = [
-    {v:needsSpent,c:C.needs},{v:wantsSpent,c:C.wants},{v:savingsBudget+savingsExtra,c:C.savings},
-    ...(fourthActive?[{v:txFourth,c:C.fourth}]:[]),
+    {v:needsSpent,     c:C.needs},
+    {v:wantsSpent,     c:C.wants},
+    {v:savingsDisplay, c:C.savings},
+    ...(fourthActive ? [{v:fourthBudget, c:C.fourth}] : []),
   ];
   const rows = [
-    {label:"Necesidades",spent:needsSpent,budget:needsBudget,color:C.needs},
-    {label:"Deseos",spent:wantsSpent,budget:wantsBudget,color:C.wants},
-    {label:"Ahorros",spent:savingsBudget+savingsExtra,budget:savingsBudget,color:C.savings},
-    ...(fourthActive?[{label:fourthName,spent:txFourth,budget:fourthBudget,color:C.fourth}]:[]),
+    {label:"Necesidades", spent:needsSpent,     budget:needsBudget,   color:C.needs},
+    {label:"Deseos",      spent:wantsSpent,     budget:wantsBudget,   color:C.wants},
+    {label:"Ahorros",     spent:savingsDisplay, budget:savingsBudget, color:C.savings},
+    ...(fourthActive ? [{label:fourthName, spent:fourthBudget, budget:fourthBudget, color:C.fourth}] : []),
   ];
 
   return (
@@ -676,18 +678,21 @@ function HomeScreen({ derived, members, onHistory, onEmergency }) {
 
       {fourthActive&&(
         <Card style={{marginBottom:14,background:C.fourth+"12",border:`1px solid ${C.fourth}25`}}>
-          <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:6}}>
+          <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:6}}>
             <div>
               <div style={{fontSize:10,color:C.fourth,fontWeight:700,letterSpacing:0.8,textTransform:"uppercase",fontFamily:FB,marginBottom:2}}>{fourthName}</div>
-              <div style={{fontFamily:FD,fontSize:22,fontWeight:800,color:C.fourth}}>{fmt(txFourth)}</div>
+              <div style={{fontFamily:FD,fontSize:22,fontWeight:800,color:C.fourth}}>{fmt(fourthBudget)}</div>
+              <div style={{fontSize:10,color:C.muted,fontFamily:FB,marginTop:1}}>reservado este mes</div>
             </div>
             <div style={{textAlign:"right"}}>
-              <div style={{fontSize:11,color:C.muted,fontFamily:FB}}>presupuesto</div>
-              <div style={{fontFamily:FM,fontSize:16,fontWeight:700,color:C.fourth}}>{fmt(fourthBudget)}</div>
+              {txFourthIn>0&&<div style={{fontSize:12,color:C.fourth,fontFamily:FB,fontWeight:600}}>+{fmt(txFourthIn)} aportado</div>}
+              {txFourthOut>0&&<div style={{fontSize:12,color:C.red,fontFamily:FB,fontWeight:600}}>-{fmt(txFourthOut)} usado</div>}
             </div>
           </div>
-          <Bar value={txFourth} max={fourthBudget||1} color={C.fourth} h={6}/>
-          <div style={{fontSize:10,color:C.muted,fontFamily:FB,marginTop:4}}>{fmt(Math.max(0,fourthBudget-txFourth))} restante</div>
+          <Bar value={txFourthIn} max={fourthBudget||1} color={C.fourth} h={6}/>
+          <div style={{fontSize:10,color:C.muted,fontFamily:FB,marginTop:4}}>
+            {fmt(fourthBudget - txFourthIn)} sin asignar · {fmt(Math.max(0, txFourthIn - txFourthOut))} disponible en fondo
+          </div>
         </Card>
       )}
 
@@ -700,7 +705,7 @@ function HomeScreen({ derived, members, onHistory, onEmergency }) {
 
 // ═══════════════ GASTOS SCREEN ════════════════════════════════════════════════
 function GastosScreen({ data, derived, actions, members, myProfile }) {
-  const { needsSpent,wantsSpent,needsBudget,wantsBudget,savingsBudget,savingsExtra,activeRule,commitmentTotal,fourthActive,fourthName,txFourth,fourthBudget } = derived;
+  const { needsSpent,wantsSpent,needsBudget,wantsBudget,savingsBudget,savingsExtra,activeRule,commitmentTotal,fourthActive,fourthName,fourthDisplay,fourthBudget,txFourthIn,txFourthOut } = derived;
   const { recurring, transactions } = data;
   const [tab,setTab]=useState("gastos");
   const [nGasto,setNGasto]=useState({name:"",amount:""});
@@ -935,11 +940,14 @@ function GastosScreen({ data, derived, actions, members, myProfile }) {
           {fourthActive&&(
             <div style={{marginTop:8}}>
               <Card style={{marginBottom:8,background:C.fourth+"10",border:`1px solid ${C.fourth}25`,padding:16}}>
-                <div style={{fontSize:11,color:C.fourth,fontWeight:700,textTransform:"uppercase",letterSpacing:0.8,fontFamily:FB,marginBottom:4}}>🔵 {fourthName}</div>
-                <div style={{display:"flex",justifyContent:"space-between",alignItems:"center"}}>
-                  <div style={{fontSize:12,color:C.muted,fontFamily:FB}}>Presupuesto: <strong style={{color:C.fourth}}>{fmt(fourthBudget)}</strong></div>
-                  <div style={{fontSize:12,color:C.muted,fontFamily:FB}}>Gastado: <strong style={{color:txFourth>fourthBudget?C.red:C.fourth}}>{fmt(txFourth)}</strong></div>
+                <div style={{fontSize:11,color:C.fourth,fontWeight:700,textTransform:"uppercase",letterSpacing:0.8,fontFamily:FB,marginBottom:6}}>🔵 {fourthName}</div>
+                <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:6}}>
+                  <div style={{fontSize:12,color:C.muted,fontFamily:FB}}>Reservado: <strong style={{color:C.fourth}}>{fmt(fourthBudget)}</strong></div>
+                  <div style={{fontSize:12,color:C.muted,fontFamily:FB}}>Aportado: <strong style={{color:C.fourth}}>{fmt(txFourthIn)}</strong></div>
+                  <div style={{fontSize:12,color:C.muted,fontFamily:FB}}>Usado: <strong style={{color:txFourthOut>0?C.red:C.muted}}>{fmt(txFourthOut)}</strong></div>
                 </div>
+                <Bar value={txFourthIn} max={fourthBudget||1} color={C.fourth} h={5}/>
+                <div style={{fontSize:10,color:C.muted,fontFamily:FB,marginTop:4}}>Disponible en fondo: {fmt(Math.max(0,txFourthIn-txFourthOut))}</div>
               </Card>
 
               {/* Abono a 4ta */}
@@ -1525,28 +1533,52 @@ export default function Sincopa() {
   const needsBudget     = baseInc * activeRule.needs   / 100;
   const wantsBudget     = baseInc * activeRule.wants   / 100;
   const savingsBudget   = baseInc * activeRule.savings / 100;
-  const fourthBudget    = (rule==="Personalizado"&&custom.fourthActive) ? baseInc*(custom.fourthPct||0)/100 : 0;
+  const fourthPct       = (rule==="Personalizado"&&custom.fourthActive) ? (custom.fourthPct||0) : 0;
+  const fourthBudget    = baseInc * fourthPct / 100;
   const fourthName      = custom.fourthName || "4ta categoría";
-  const fourthActive    = rule==="Personalizado" && custom.fourthActive;
+  const fourthActive    = rule==="Personalizado" && !!custom.fourthActive;
   const commitmentTotal = commitments.filter(c=>c.active!==false).reduce((s,c)=>s+(+c.monthly||0),0);
   const commitmentPct   = baseInc>0 ? Math.round(commitmentTotal/baseInc*100) : 0;
   const recNeeds        = recurring.filter(r=>r.active&&+r.amount>0).reduce((s,r)=>s+(+r.amount),0);
   const txNeeds         = transactions.filter(t=>t.category==="needs").reduce((s,t)=>s+t.amount,0);
   const txWants         = transactions.filter(t=>t.category==="wants").reduce((s,t)=>s+t.amount,0);
-  const txSavings       = transactions.filter(t=>t.category==="savings").reduce((s,t)=>s+t.amount,0);
+  // Savings: extra deposits (+) and withdrawals (-) on top of the automatic budget
+  const txSavingsExtra  = transactions.filter(t=>t.category==="savings").reduce((s,t)=>s+t.amount,0);
   const txSavingsOut    = transactions.filter(t=>t.category==="savings_out").reduce((s,t)=>s+t.amount,0);
-  const txFourth        = transactions.filter(t=>t.category==="fourth").reduce((s,t)=>s+t.amount,0);
+  // Fourth: deposits and withdrawals — net shows how much of the fund you've used
+  const txFourthIn      = transactions.filter(t=>t.category==="fourth").reduce((s,t)=>s+t.amount,0);
   const txFourthOut     = transactions.filter(t=>t.category==="fourth_out").reduce((s,t)=>s+t.amount,0);
   const needsSpent      = recNeeds + txNeeds;
   const wantsSpent      = txWants + commitmentTotal;
-  const savingsExtra    = txSavings - txSavingsOut;
-  const fourthSpent     = txFourth - txFourthOut;
-  const monthSavings    = Math.max(0, savingsBudget + savingsExtra);
-  const totalSavings    = totalSavingsAccum + monthSavings - withdrawn;
+  // savingsExtra: net manual movements on top of automatic savings
+  const savingsExtra    = txSavingsExtra - txSavingsOut;
+  // fourthUsed: net spent from fourth fund (positive = spent more than deposited)
+  const fourthUsed      = txFourthOut - txFourthIn;  // net outflow
+  // Balance: income minus all reserved buckets and spending
+  // fourthBudget is reserved automatically (like savingsBudget)
+  // fourthUsed only affects balance if you spent MORE than the reserved budget
+  const monthSavings    = savingsBudget + savingsExtra;
+  const totalSavings    = totalSavingsAccum + Math.max(0, monthSavings) - withdrawn;
+  // totalBalance = what's freely available after all reservations and spending
   const totalBalance    = inc - needsSpent - wantsSpent - savingsBudget - savingsExtra - fourthBudget;
   const isNeg           = totalBalance < 0;
 
-  const derived = { baseInc,balanceCarryover,inc,needsSpent,wantsSpent,savingsExtra,needsBudget,wantsBudget,savingsBudget,fourthBudget,fourthName,fourthActive,txFourth:fourthSpent,totalBalance,monthSavings,totalSavings,commitmentTotal,commitmentPct,isNeg,activeRule,currentMonth,currentYear };
+  // What to show in the donut/rows: how much of each budget has been "used"
+  // For savings: the automatic budget is always "used" (reserved), plus any extras
+  // For fourth: txFourthIn shows how much you've actively allocated; budget is reserved
+  const savingsDisplay  = savingsBudget + Math.max(0, savingsExtra);
+  const fourthDisplay   = txFourthIn; // how much you've put into the fund manually
+
+  const derived = {
+    baseInc, balanceCarryover, inc,
+    needsSpent, wantsSpent, savingsExtra,
+    needsBudget, wantsBudget, savingsBudget, savingsDisplay,
+    fourthBudget, fourthName, fourthActive, fourthDisplay, fourthUsed,
+    txFourthIn, txFourthOut,
+    totalBalance, monthSavings, totalSavings,
+    commitmentTotal, commitmentPct,
+    isNeg, activeRule, currentMonth, currentYear
+  };
   const data = { salary, extras, rule, custom, recurring, transactions, commitments, history };
 
   // ── ACTIONS ──
