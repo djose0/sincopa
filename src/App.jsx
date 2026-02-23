@@ -608,13 +608,18 @@ function PayHistory({ payments, profiles, color, onMark, labelPaid, labelMark })
 function HomeScreen({ derived, members, onHistory, onEmergency, cards }) {
   const { baseInc,balanceCarryover,needsSpent,wantsSpent,savingsExtra,needsBudget,wantsBudget,savingsBudget,savingsDisplay,fourthBudget,fourthName,fourthActive,fourthDisplay,fourthUsed,txFourthIn,txFourthOut,totalBalance,monthSavings,totalSavings,commitmentTotal,commitmentPct,isNeg,activeRule,currentMonth,currentYear } = derived;
 
-  // Card cycle totals
+  // Card cycle totals — current accumulating cycle (not yet due)
   const totalCardDebt = (cards||[]).reduce((s,card)=>{
-    const purchases = card.purchases||[];
     const now = new Date();
-    let cycleStart = new Date(now.getFullYear(), now.getMonth(), (card.cut_day||1)+1);
-    if (cycleStart > now) cycleStart = new Date(now.getFullYear(), now.getMonth()-1, (card.cut_day||1)+1);
-    return s + purchases.filter(p=>p.date>=cycleStart.toISOString().slice(0,10)).reduce((a,p)=>a+(+p.amount||0),0);
+    const cut_day = card.cut_day || 1;
+    // Current cycle started the day after last cut
+    const lastCut = new Date(now.getFullYear(), now.getMonth(), cut_day);
+    if (now < lastCut) lastCut.setMonth(lastCut.getMonth()-1); // cut hasn't happened yet this month
+    else lastCut.setMonth(lastCut.getMonth()); // cut already happened
+    const cycleStart = new Date(lastCut.getFullYear(), lastCut.getMonth(), cut_day+1);
+    if (cycleStart > now) cycleStart.setMonth(cycleStart.getMonth()-1);
+    const startStr = cycleStart.toISOString().slice(0,10);
+    return s + (card.purchases||[]).filter(p=>p.date>=startStr).reduce((a,p)=>a+(+p.amount||0),0);
   }, 0);
   const totalSpent = needsSpent + wantsSpent;
   const spentPct = baseInc>0 ? clamp(Math.round((totalSpent+savingsDisplay+(fourthActive?fourthBudget:0))/baseInc*100),0,100) : 0;
@@ -770,15 +775,19 @@ function GastosScreen({ data, derived, actions, members, myProfile }) {
 
   function handleAddGasto() {
     if(!nGasto.name||!nGasto.amount) return;
-    const selectedCardId = cardId ? +cardId : null; // always store as number
-    const txData = {...nGasto, for_house:isRoomies?forHouse:true, card_id:selectedCardId};
+    // cardId is stored as the card's actual id value (number from Supabase)
+    const selectedCard = cardId ? (cards||[]).find(c=>c.id===cardId) : null;
+
     if(isRecurring) {
-      actions.addRec({icon:"📋",label:nGasto.name,amount:nGasto.amount,category:autoCatName(nGasto.name),for_house:isRoomies?forHouse:true,card_id:selectedCardId});
+      // Recurring: always goes to recurring table, card_id is just metadata
+      actions.addRec({icon:"📋",label:nGasto.name,amount:nGasto.amount,category:autoCatName(nGasto.name),for_house:isRoomies?forHouse:true,card_id:selectedCard?.id||null});
+    } else if(selectedCard) {
+      // Card purchase: ONLY goes to cards.purchases, NOT to transactions
+      // It won't affect the budget until the billing cycle closes
+      actions.addCardPurchase(selectedCard.id, {name:nGasto.name, amount:+nGasto.amount, category:autoCatName(nGasto.name)});
     } else {
-      actions.addTx(txData,"auto",()=>setNGasto({name:"",amount:""}));
-      if(selectedCardId) {
-        actions.addCardPurchase(selectedCardId, {name:nGasto.name, amount:nGasto.amount, category:autoCatName(nGasto.name)});
-      }
+      // Cash/debit: goes to transactions normally, affects budget immediately
+      actions.addTx({...nGasto, for_house:isRoomies?forHouse:true, card_id:null},"auto",()=>{});
     }
     setNGasto({name:"",amount:""});
     setIsRecurring(false);
@@ -2301,33 +2310,24 @@ export default function Sincopa() {
   const commitmentTotal = commitments.filter(c=>c.active!==false).reduce((s,c)=>s+(+c.monthly||0),0);
   const commitmentPct   = baseInc>0 ? Math.round(commitmentTotal/baseInc*100) : 0;
   const recNeeds        = recurring.filter(r=>r.active&&+r.amount>0).reduce((s,r)=>s+(+r.amount),0);
-  // Card purchases: only count when the cut date has PASSED (billing cycle closed)
-  // While in current cycle, they accumulate in the card but don't affect the budget yet
-  const today = new Date();
+  // Transactions: cash/debit only (card purchases never enter transactions)
+  const txNeeds         = transactions.filter(t=>t.category==="needs").reduce((s,t)=>s+t.amount,0);
+  const txWants         = transactions.filter(t=>t.category==="wants").reduce((s,t)=>s+t.amount,0);
+  // Card debt due this month: purchases from the cycle whose cut date has already passed this month
+  const todayDate       = new Date();
   const cardDueThisMonth = cards.reduce((s, card) => {
     if (!card.cut_day) return s;
-    // Purchases from PREVIOUS cycle (cut already passed this month) = due now
-    const thisCutDate = new Date(today.getFullYear(), today.getMonth(), card.cut_day);
-    const prevCutDate = new Date(today.getFullYear(), today.getMonth()-1, card.cut_day);
-    const purchases = card.purchases || [];
-    // Previous cycle = between the cut before last and last cut
-    const twoCutsAgo = new Date(today.getFullYear(), today.getMonth()-2, card.cut_day+1);
-    const lastCutStr = prevCutDate.toISOString().slice(0,10);
-    const twoCutsAgoStr = twoCutsAgo.toISOString().slice(0,10);
-    // If today is past the cut day, last cycle closed = from cut_day of prev month to cut_day of this month
-    const cutPassed = today.getDate() >= card.cut_day;
-    if (cutPassed) {
-      const cycleStart = new Date(today.getFullYear(), today.getMonth()-1, card.cut_day+1);
-      const cycleEnd = thisCutDate;
-      return s + purchases
-        .filter(p => p.date >= cycleStart.toISOString().slice(0,10) && p.date <= cycleEnd.toISOString().slice(0,10))
-        .reduce((a,p) => a+(+p.amount||0), 0);
-    }
-    return s;
+    const cutThisMonth = new Date(todayDate.getFullYear(), todayDate.getMonth(), card.cut_day);
+    if (todayDate < cutThisMonth) return s; // cut hasn't happened yet, not due
+    // Cycle that just closed: from day after prev cut → this month's cut
+    const cycleStart = new Date(todayDate.getFullYear(), todayDate.getMonth()-1, card.cut_day+1);
+    const cycleEnd   = cutThisMonth;
+    const startStr   = cycleStart.toISOString().slice(0,10);
+    const endStr     = cycleEnd.toISOString().slice(0,10);
+    return s + (card.purchases||[])
+      .filter(p => p.date >= startStr && p.date <= endStr)
+      .reduce((a,p) => a+(+p.amount||0), 0);
   }, 0);
-  // Transactions: exclude those paid with a card (they count only when card cycle closes)
-  const txNeeds         = transactions.filter(t=>t.category==="needs"&&!t.card_id).reduce((s,t)=>s+t.amount,0);
-  const txWants         = transactions.filter(t=>t.category==="wants"&&!t.card_id).reduce((s,t)=>s+t.amount,0);
   // Savings: extra deposits (+) and withdrawals (-) on top of the automatic budget
   const txSavingsExtra  = transactions.filter(t=>t.category==="savings").reduce((s,t)=>s+t.amount,0);
   const txSavingsOut    = transactions.filter(t=>t.category==="savings_out").reduce((s,t)=>s+t.amount,0);
