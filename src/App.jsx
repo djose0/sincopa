@@ -1650,6 +1650,57 @@ function HogarScreen({ data, derived, actions, members, session, household }) {
   );
 }
 
+// ─── JOIN HOUSEHOLD INLINE ────────────────────────────────────────────────────
+function JoinHouseholdInline({ session, onJoined }) {
+  const [open, setOpen] = useState(false);
+  const [code, setCode] = useState("");
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState("");
+
+  async function join() {
+    if (!code.trim()) return;
+    setLoading(true); setError("");
+    const { data, error: e } = await SB.from("households").select("*").eq("invite_code", code.trim().toUpperCase());
+    if (e || !data?.length) { setError("Código no válido. Pídele el código a quien te invitó."); setLoading(false); return; }
+    const hh = data[0];
+    const { data: existing } = await SB.from("household_members").select("*").eq("household_id", hh.id).eq("user_id", session.user.id);
+    if (!existing?.length) {
+      await SB.from("household_members").insert({
+        household_id: hh.id,
+        user_id: session.user.id,
+        name: session.user.user_metadata?.name || "Usuario",
+        avatar: session.user.user_metadata?.avatar || "🐼",
+        role: "member",
+      });
+    }
+    setLoading(false);
+    setOpen(false);
+    setCode("");
+    onJoined(hh);
+  }
+
+  return (
+    <div style={{marginBottom:12}}>
+      {!open ? (
+        <button onClick={()=>setOpen(true)} style={{width:"100%",border:`1.5px solid ${C.savings}40`,borderRadius:14,background:C.savings+"08",color:C.savings,fontFamily:FB,fontWeight:600,fontSize:14,padding:14,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",gap:8}}>
+          🔗 Tengo un código de invitación
+        </button>
+      ) : (
+        <Card style={{border:`1.5px solid ${C.savings}30`}}>
+          <div style={{fontFamily:FB,fontSize:14,fontWeight:700,color:C.ink,marginBottom:4}}>🔗 Unirme a un hogar</div>
+          <div style={{fontSize:12,color:C.muted,fontFamily:FB,marginBottom:10}}>Ingresa el código que te compartió tu pareja o roomie. Pasarás a ver el hogar compartido.</div>
+          <div style={{display:"grid",gridTemplateColumns:"1fr 80px",gap:8}}>
+            <input value={code} onChange={e=>setCode(e.target.value.toUpperCase())} placeholder="ABC123" style={{...SI,letterSpacing:3,fontFamily:FM,fontWeight:700,textTransform:"uppercase"}} autoFocus/>
+            <Btn onClick={join} color={C.savings} disabled={loading}>{loading?"...":"Unirme"}</Btn>
+          </div>
+          {error&&<div style={{fontSize:11,color:C.red,fontFamily:FB,marginTop:8}}>{error}</div>}
+          <button onClick={()=>{setOpen(false);setError("");setCode("");}} style={{border:"none",background:"none",color:C.muted,fontFamily:FB,fontSize:12,cursor:"pointer",marginTop:10,padding:0}}>Cancelar</button>
+        </Card>
+      )}
+    </div>
+  );
+}
+
 // ═══════════════ CONFIG SCREEN ════════════════════════════════════════════════
 function ConfigScreen({ data, actions, session, household, members, onSignOut, derived }) {
   const { salary, extras, rule, custom, householdType } = data;
@@ -1871,6 +1922,9 @@ function ConfigScreen({ data, actions, session, household, members, onSignOut, d
           </div>
         )}
       </Card>
+
+      {/* Join another household — visible for everyone */}
+      <JoinHouseholdInline session={session} onJoined={actions.switchHousehold}/>
 
       {/* Sign out */}
       <button onClick={onSignOut} style={{width:"100%",border:`1.5px solid ${C.border}`,borderRadius:14,background:"transparent",color:C.muted,fontFamily:FB,fontWeight:600,fontSize:14,padding:14,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",gap:8}}>
@@ -2357,12 +2411,42 @@ export default function Sincopa() {
       setCards(p=>p.map(c=>c.id===cardId?{...c,purchases}:c));
       await SB.from("cards").update({ purchases }).eq("id", cardId);
     },
+    switchHousehold: async (hh) => {
+      setHousehold(hh);
+      setCards([]); setTransactions([]); setRecurring([]); setCommitments([]); setExtras([]); setHistory([]);
+      await loadAllMembers(hh.id, session);
+      await loadAppState(hh, session);
+    },
     promoteMember: async (targetUserId) => {
       await SB.from("household_members").update({ role: "admin" }).eq("household_id", household.id).eq("user_id", targetUserId);
       await loadAllMembers(household.id, session);
     },
     removeMember: async (targetUserId) => {
+      // 1. Remove from this household
       await SB.from("household_members").delete().eq("household_id", household.id).eq("user_id", targetUserId);
+      // 2. Create a new individual household for them so they don't lose access to app
+      const code = Math.random().toString(36).slice(2,8).toUpperCase();
+      const now = new Date();
+      const { data: newHH } = await SB.from("households").insert({
+        name: "Mi hogar",
+        invite_code: code,
+        created_by: targetUserId,
+        household_type: "individual",
+        current_year: now.getFullYear(),
+        current_month: now.getMonth()+1,
+        rule: "50/30/20",
+        custom_needs: 50, custom_wants: 30, custom_savings: 20,
+        salary: 0, balance_carryover: 0, total_savings_accum: 0, withdrawn: 0,
+      }).select();
+      if (newHH?.[0]) {
+        await SB.from("household_members").insert({
+          household_id: newHH[0].id,
+          user_id: targetUserId,
+          role: "admin",
+          name: members?.[targetUserId]?.name || "Usuario",
+          avatar: members?.[targetUserId]?.avatar || "🐼",
+        });
+      }
       await loadAllMembers(household.id, session);
     },
   };
