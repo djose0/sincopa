@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from "react";
-import { Plus, X, Pencil, Check, Trash2, Archive, Zap, Home, List, Settings, Layers, LogOut, Copy, RefreshCw, Users } from "lucide-react";
+import { Plus, X, Pencil, Check, Trash2, Archive, Zap, Home, List, Settings, Layers, LogOut, Copy, RefreshCw, Users, CreditCard } from "lucide-react";
 import { createClient } from "@supabase/supabase-js";
 
 const SUPABASE_URL  = "https://fjxuijmagvrmavtrpqix.supabase.co";
@@ -14,7 +14,7 @@ const C = {
   bg:"#FAF8F4", surface:"#FFFFFF", card:"#F4F1EB",
   ink:"#1A1A1A", muted:"#8A8A8A", border:"#E8E4DC",
   needs:"#2E4DA0", wants:"#E8652A", commit:"#7C3AED", savings:"#2D6A4F",
-  yellow:"#F2B830", red:"#D63C2F", fourth:"#0E7490",
+  yellow:"#F2B830", red:"#D63C2F", fourth:"#0E7490", card_color:"#B45309",
 };
 const FD = "'Georgia','Times New Roman',serif";
 const FB = "system-ui,-apple-system,sans-serif";
@@ -1092,7 +1092,7 @@ function GastosScreen({ data, derived, actions, members, myProfile }) {
 
 // ═══════════════ COMPROMISOS SCREEN ══════════════════════════════════════════
 function CompromisosScreen({ data, derived, actions, members }) {
-  const { commitments } = data;
+  const { commitments, cards } = data;
   const { commitmentTotal, baseInc } = derived;
   const [showForm,setShowForm]=useState(false);
   const [editing,setEditing]=useState(null);
@@ -1100,6 +1100,17 @@ function CompromisosScreen({ data, derived, actions, members }) {
   const today = new Date().getDate();
   const groups = [{label:"Suscripciones",icon:"🔄",type:"subscription"},{label:"Diferidos",icon:"💳",type:"deferred"},{label:"Préstamos",icon:"🏦",type:"loan"}];
   const dueToday = commitments.filter(c=>c.billing_day===today&&!(c.payments||[]).some(p=>p.date===todayStr()));
+
+  // Card cycle totals for summary
+  function cardCycleTotal(card) {
+    const purchases = card.purchases||[];
+    if (!card.cut_day) return purchases.reduce((s,p)=>s+(+p.amount||0),0);
+    const now = new Date();
+    let cycleStart = new Date(now.getFullYear(), now.getMonth(), card.cut_day+1);
+    if (cycleStart > now) cycleStart = new Date(now.getFullYear(), now.getMonth()-1, card.cut_day+1);
+    return purchases.filter(p=>p.date>=cycleStart.toISOString().slice(0,10)).reduce((s,p)=>s+(+p.amount||0),0);
+  }
+  const totalCardDebt = (cards||[]).reduce((s,c)=>s+cardCycleTotal(c),0);
 
   return (
     <div style={{padding:"0 16px 100px"}}>
@@ -1112,6 +1123,31 @@ function CompromisosScreen({ data, derived, actions, members }) {
         </div>
         <Btn onClick={()=>{setEditing(null);setShowForm(true);}} color={C.commit}>+ Nuevo</Btn>
       </div>
+
+      {/* Cards summary in compromisos */}
+      {(cards||[]).length>0&&(
+        <Card style={{marginBottom:14,background:C.card_color+"10",border:`1px solid ${C.card_color}25`}}>
+          <div style={{fontSize:10,color:C.card_color,fontWeight:700,textTransform:"uppercase",letterSpacing:0.8,fontFamily:FB,marginBottom:8}}>💳 Tarjetas — ciclo actual</div>
+          {(cards||[]).map(card=>{
+            const total = cardCycleTotal(card);
+            const limit = +card.limit||0;
+            return (
+              <div key={card.id} style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:6}}>
+                <div style={{display:"flex",alignItems:"center",gap:8}}>
+                  <div style={{width:10,height:10,borderRadius:2,background:card.color||C.card_color}}/>
+                  <span style={{fontFamily:FB,fontSize:13,fontWeight:600,color:C.ink}}>{card.name}</span>
+                  {card.pay_day&&<Pill color={C.muted} small>Pago día {card.pay_day}</Pill>}
+                </div>
+                <span style={{fontFamily:FM,fontSize:13,fontWeight:700,color:C.card_color}}>{fmt(total)}</span>
+              </div>
+            );
+          })}
+          <div style={{borderTop:`1px solid ${C.card_color}20`,paddingTop:8,marginTop:4,display:"flex",justifyContent:"space-between"}}>
+            <span style={{fontFamily:FB,fontSize:12,fontWeight:700,color:C.muted}}>Total tarjetas</span>
+            <span style={{fontFamily:FM,fontSize:14,fontWeight:800,color:C.card_color}}>{fmt(totalCardDebt)}</span>
+          </div>
+        </Card>
+      )}
       {dueToday.length>0&&(
         <Card style={{marginBottom:14,background:C.red+"10",border:`1.5px solid ${C.red}30`,padding:"14px 16px"}}>
           <div style={{fontFamily:FB,fontSize:13,fontWeight:700,color:C.red,marginBottom:8}}>⚠ Cobros de hoy</div>
@@ -1203,6 +1239,212 @@ function CompromisosScreen({ data, derived, actions, members }) {
           <Btn onClick={()=>setShowForm(true)} color={C.commit}>Agregar primer compromiso</Btn>
         </div>
       )}
+    </div>
+  );
+}
+
+// ═══════════════ CARD FORM ════════════════════════════════════════════════════
+function CardForm({ editing, onSave, onClose }) {
+  const [form, setForm] = useState(editing || { name:"", limit:"", cut_day:"", pay_day:"", color:"#B45309" });
+  const colors = ["#B45309","#7C3AED","#2E4DA0","#2D6A4F","#D63C2F","#0E7490"];
+  return (
+    <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.5)",zIndex:300,display:"flex",alignItems:"flex-end"}} onClick={onClose}>
+      <div onClick={e=>e.stopPropagation()} style={{background:C.surface,borderRadius:"24px 24px 0 0",width:"100%",maxWidth:480,margin:"0 auto",padding:"20px 20px 40px"}}>
+        <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:16}}>
+          <div style={{fontFamily:FD,fontSize:18,fontWeight:700}}>{editing?"Editar tarjeta":"Nueva tarjeta"}</div>
+          <button onClick={onClose} style={{border:"none",background:"none",cursor:"pointer"}}><X size={18} color={C.muted}/></button>
+        </div>
+        <div style={{display:"grid",gap:12}}>
+          <Field label="Nombre de la tarjeta" value={form.name} onChange={e=>setForm(p=>({...p,name:e.target.value}))} placeholder="Visa Oro, Amex..."/>
+          <div>
+            <label style={{fontSize:10,fontWeight:700,color:C.muted,textTransform:"uppercase",letterSpacing:0.8,fontFamily:FB,display:"block",marginBottom:6}}>Límite de crédito</label>
+            <div style={{position:"relative"}}>
+              <span style={{position:"absolute",left:12,top:"50%",transform:"translateY(-50%)",fontSize:16,fontFamily:FM,color:C.muted}}>$</span>
+              <input type="number" value={form.limit} onChange={e=>setForm(p=>({...p,limit:e.target.value}))} placeholder="0" style={{...SI,paddingLeft:28,fontFamily:FM,fontSize:18,fontWeight:700}}/>
+            </div>
+          </div>
+          <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10}}>
+            <div>
+              <label style={{fontSize:10,fontWeight:700,color:C.muted,textTransform:"uppercase",letterSpacing:0.8,fontFamily:FB,display:"block",marginBottom:6}}>Día de corte</label>
+              <input type="number" min="1" max="31" value={form.cut_day} onChange={e=>setForm(p=>({...p,cut_day:+e.target.value}))} placeholder="15" style={SI}/>
+            </div>
+            <div>
+              <label style={{fontSize:10,fontWeight:700,color:C.muted,textTransform:"uppercase",letterSpacing:0.8,fontFamily:FB,display:"block",marginBottom:6}}>Día de pago</label>
+              <input type="number" min="1" max="31" value={form.pay_day} onChange={e=>setForm(p=>({...p,pay_day:+e.target.value}))} placeholder="5" style={SI}/>
+            </div>
+          </div>
+          <div>
+            <label style={{fontSize:10,fontWeight:700,color:C.muted,textTransform:"uppercase",letterSpacing:0.8,fontFamily:FB,display:"block",marginBottom:8}}>Color</label>
+            <div style={{display:"flex",gap:8}}>
+              {colors.map(col=>(
+                <button key={col} onClick={()=>setForm(p=>({...p,color:col}))} style={{width:28,height:28,borderRadius:14,background:col,border:`2px solid ${form.color===col?"#000":"transparent"}`,cursor:"pointer"}}/>
+              ))}
+            </div>
+          </div>
+          <Btn onClick={()=>{if(!form.name)return;onSave(form);onClose();}} full color={form.color||C.card_color}>
+            {editing?"Guardar cambios":"Agregar tarjeta"}
+          </Btn>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ═══════════════ CARDS SCREEN ═════════════════════════════════════════════════
+function CardsScreen({ data, actions, members, session }) {
+  const { cards, transactions } = data;
+  const myId = session?.user?.id;
+  const [showForm, setShowForm] = useState(false);
+  const [editing, setEditing] = useState(null);
+  const [openCard, setOpenCard] = useState(null);  // card id expanded
+  const [nPurchase, setNPurchase] = useState({ name:"", amount:"", category:"wants" });
+  const today = new Date();
+  const todayDay = today.getDate();
+
+  // Get purchases in the CURRENT cycle (since last cut date)
+  function currentCyclePurchases(card) {
+    const purchases = card.purchases || [];
+    if (!card.cut_day) return purchases;
+    // Current cycle started the day after last cut
+    const now = new Date();
+    let cycleStart = new Date(now.getFullYear(), now.getMonth(), card.cut_day + 1);
+    if (cycleStart > now) cycleStart = new Date(now.getFullYear(), now.getMonth()-1, card.cut_day + 1);
+    return purchases.filter(p => p.date >= cycleStart.toISOString().slice(0,10));
+  }
+
+  function cycleTotal(card) {
+    return currentCyclePurchases(card).reduce((s,p)=>s+(+p.amount||0),0);
+  }
+
+  function daysUntil(day) {
+    const now = new Date();
+    let target = new Date(now.getFullYear(), now.getMonth(), day);
+    if (target <= now) target = new Date(now.getFullYear(), now.getMonth()+1, day);
+    return Math.ceil((target-now)/(1000*60*60*24));
+  }
+
+  return (
+    <div style={{padding:"0 16px 100px"}}>
+      {showForm&&<CardForm editing={editing} onSave={c=>{editing?actions.updateCard(editing.id,c):actions.addCard(c);setEditing(null);}} onClose={()=>{setShowForm(false);setEditing(null);}}/>}
+
+      <div style={{padding:"20px 0 14px",display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+        <div>
+          <div style={{fontFamily:FD,fontSize:24,fontWeight:800,color:C.ink}}>Tarjetas</div>
+          <div style={{fontSize:12,color:C.muted,fontFamily:FB}}>Estado de cuenta · Límites · Compras</div>
+        </div>
+        <Btn onClick={()=>{setEditing(null);setShowForm(true);}} color={C.card_color}>+ Nueva</Btn>
+      </div>
+
+      {cards.length===0&&(
+        <div style={{textAlign:"center",padding:"60px 0",color:C.muted}}>
+          <CreditCard size={40} color={C.border} style={{marginBottom:12}}/>
+          <div style={{fontFamily:FD,fontSize:16,fontWeight:700,color:C.ink,marginBottom:6}}>Sin tarjetas</div>
+          <div style={{fontSize:12,fontFamily:FB}}>Agrega tu primera tarjeta de crédito</div>
+        </div>
+      )}
+
+      {cards.map(card=>{
+        const total = cycleTotal(card);
+        const limit = +card.limit||0;
+        const available = limit - total;
+        const usedPct = limit>0 ? Math.min(100, Math.round(total/limit*100)) : 0;
+        const cyclePurchases = currentCyclePurchases(card);
+        const isOpen = openCard===card.id;
+        const daysTocut = card.cut_day ? daysUntil(card.cut_day) : null;
+        const daysToPay = card.pay_day ? daysUntil(card.pay_day) : null;
+        const colorCard = card.color || C.card_color;
+        const overLimit = total > limit && limit > 0;
+
+        return (
+          <div key={card.id} style={{marginBottom:14}}>
+            {/* Card visual */}
+            <div style={{background:`linear-gradient(135deg, ${colorCard}, ${colorCard}cc)`,borderRadius:20,padding:"20px 22px",marginBottom:8,position:"relative",overflow:"hidden"}}>
+              <div style={{position:"absolute",right:-20,top:-20,width:120,height:120,borderRadius:60,background:"rgba(255,255,255,0.08)"}}/>
+              <div style={{position:"absolute",right:20,bottom:-30,width:160,height:160,borderRadius:80,background:"rgba(255,255,255,0.05)"}}/>
+              <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:16}}>
+                <div style={{fontFamily:FB,fontSize:15,fontWeight:700,color:"#fff"}}>{card.name}</div>
+                <CreditCard size={22} color="rgba(255,255,255,0.7)"/>
+              </div>
+              <div style={{fontFamily:FD,fontSize:26,fontWeight:800,color:"#fff",marginBottom:4}}>{fmt(total)}</div>
+              <div style={{fontSize:11,color:"rgba(255,255,255,0.7)",fontFamily:FB,marginBottom:12}}>de {fmt(limit)} · {usedPct}% usado</div>
+              {/* Progress bar */}
+              <div style={{height:4,background:"rgba(255,255,255,0.2)",borderRadius:2,marginBottom:12}}>
+                <div style={{height:4,background:overLimit?"#ff6b6b":"rgba(255,255,255,0.8)",borderRadius:2,width:`${usedPct}%`,transition:"width 0.3s"}}/>
+              </div>
+              <div style={{display:"flex",gap:16}}>
+                {card.cut_day&&<div style={{fontSize:10,color:"rgba(255,255,255,0.7)",fontFamily:FB}}>✂ Corte día {card.cut_day} <strong style={{color:"#fff"}}>({daysTocut}d)</strong></div>}
+                {card.pay_day&&<div style={{fontSize:10,color:"rgba(255,255,255,0.7)",fontFamily:FB}}>💳 Pago día {card.pay_day} <strong style={{color:"#fff"}}>({daysToPay}d)</strong></div>}
+              </div>
+            </div>
+
+            {/* Available + actions */}
+            <Card style={{padding:"12px 16px",marginBottom:6}}>
+              <div style={{display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+                <div>
+                  <div style={{fontSize:10,color:overLimit?C.red:C.savings,fontWeight:700,textTransform:"uppercase",letterSpacing:0.8,fontFamily:FB}}>Disponible</div>
+                  <div style={{fontFamily:FM,fontSize:18,fontWeight:800,color:overLimit?C.red:C.savings}}>{fmt(Math.max(0,available))}</div>
+                </div>
+                <div style={{display:"flex",gap:6}}>
+                  <button onClick={()=>setOpenCard(isOpen?null:card.id)} style={{border:`1.5px solid ${colorCard}`,borderRadius:10,background:isOpen?colorCard+"15":"transparent",color:colorCard,fontFamily:FB,fontSize:12,fontWeight:600,padding:"7px 14px",cursor:"pointer"}}>
+                    {isOpen?"Cerrar":"Ver compras"}
+                  </button>
+                  <button onClick={()=>{setEditing(card);setShowForm(true);}} style={{border:`1.5px solid ${C.border}`,borderRadius:10,background:"transparent",padding:"7px 10px",cursor:"pointer",display:"flex"}}><Pencil size={13} color={C.muted}/></button>
+                  <button onClick={()=>{if(confirm(`¿Eliminar ${card.name}?`))actions.deleteCard(card.id);}} style={{border:`1.5px solid ${C.border}`,borderRadius:10,background:"transparent",padding:"7px 10px",cursor:"pointer",display:"flex"}}><Trash2 size={13} color={C.red}/></button>
+                </div>
+              </div>
+            </Card>
+
+            {/* Expanded: purchases + add form */}
+            {isOpen&&(
+              <Card style={{padding:14}}>
+                {/* Add purchase */}
+                <div style={{marginBottom:12}}>
+                  <div style={{fontSize:11,fontWeight:700,color:C.muted,textTransform:"uppercase",letterSpacing:0.8,fontFamily:FB,marginBottom:8}}>+ Nueva compra</div>
+                  <div style={{display:"grid",gridTemplateColumns:"1fr 90px 80px 36px",gap:6}}>
+                    <input placeholder="¿Qué compraste?" value={nPurchase.name} onChange={e=>setNPurchase(p=>({...p,name:e.target.value}))} style={SI}/>
+                    <input type="number" placeholder="$" value={nPurchase.amount} onChange={e=>setNPurchase(p=>({...p,amount:e.target.value}))} style={{...SI,textAlign:"right"}}/>
+                    <select value={nPurchase.category} onChange={e=>setNPurchase(p=>({...p,category:e.target.value}))} style={{...SI,padding:"8px 6px",fontSize:12}}>
+                      <option value="needs">Necesidad</option>
+                      <option value="wants">Deseo</option>
+                    </select>
+                    <button onClick={()=>{
+                      if(!nPurchase.name||!nPurchase.amount) return;
+                      actions.addCardPurchase(card.id, nPurchase);
+                      setNPurchase({name:"",amount:"",category:"wants"});
+                    }} style={{border:"none",background:colorCard,borderRadius:10,width:36,height:38,display:"flex",alignItems:"center",justifyContent:"center",cursor:"pointer"}}>
+                      <Plus size={16} color="white"/>
+                    </button>
+                  </div>
+                </div>
+
+                {/* Purchases list */}
+                {cyclePurchases.length===0&&<div style={{textAlign:"center",color:C.muted,fontSize:12,fontFamily:FB,padding:"12px 0"}}>Sin compras en este ciclo</div>}
+                {cyclePurchases.map(p=>(
+                  <div key={p.id} style={{display:"flex",alignItems:"center",gap:8,padding:"8px 0",borderBottom:`1px solid ${C.border}`}}>
+                    <div style={{flex:1}}>
+                      <div style={{fontSize:13,fontFamily:FB,fontWeight:600,color:C.ink}}>{p.name}</div>
+                      <div style={{display:"flex",gap:6,marginTop:2,alignItems:"center"}}>
+                        <span style={{fontSize:10,color:C.muted,fontFamily:FB}}>{p.date}</span>
+                        <Pill color={p.category==="needs"?C.needs:C.wants} small>{p.category==="needs"?"Necesidad":"Deseo"}</Pill>
+                        {p.user_id&&members?.[p.user_id]&&<AuthorTag profile={members[p.user_id]}/>}
+                      </div>
+                    </div>
+                    <div style={{fontFamily:FM,fontSize:13,fontWeight:700,color:C.ink}}>{fmt(p.amount)}</div>
+                    <button onClick={()=>actions.deleteCardPurchase(card.id,p.id)} style={{border:"none",background:"none",cursor:"pointer",display:"flex",padding:4}}><Trash2 size={12} color={C.red}/></button>
+                  </div>
+                ))}
+
+                {cyclePurchases.length>0&&(
+                  <div style={{display:"flex",justifyContent:"space-between",paddingTop:10,marginTop:4}}>
+                    <span style={{fontFamily:FB,fontSize:12,fontWeight:700,color:C.muted}}>Total del ciclo</span>
+                    <span style={{fontFamily:FM,fontSize:14,fontWeight:800,color:colorCard}}>{fmt(total)}</span>
+                  </div>
+                )}
+              </Card>
+            )}
+          </div>
+        );
+      })}
     </div>
   );
 }
@@ -1660,6 +1902,7 @@ export default function Sincopa() {
   const [recurring,         setRecurring]         = useState([]);
   const [transactions,      setTransactions]      = useState([]);
   const [commitments,       setCommitments]       = useState([]);
+  const [cards,             setCards]             = useState([]); // credit cards
   const [history,           setHistory]           = useState([]);
   const [totalSavingsAccum, setTotalSavingsAccum] = useState(0);
   const [withdrawn,         setWithdrawn]         = useState(0);
@@ -1732,7 +1975,7 @@ export default function Sincopa() {
     const hid = hh.id;
     const uid = s.user.id;
 
-    const [recR, txR, commitR, extrasR, histR, stateR, salR] = await Promise.all([
+    const [recR, txR, commitR, extrasR, histR, stateR, salR, cardR] = await Promise.all([
       SB.from("recurring").select("*").eq("household_id", hid),
       SB.from("transactions").select("*").eq("household_id", hid),
       SB.from("commitments").select("*").eq("household_id", hid),
@@ -1740,6 +1983,7 @@ export default function Sincopa() {
       SB.from("history").select("*").eq("household_id", hid),
       SB.from("household_state").select("*").eq("household_id", hid),
       SB.from("member_salaries").select("*").eq("household_id", hid),
+      SB.from("cards").select("*").eq("household_id", hid),
     ]);
 
     if (recR.data)    setRecurring(recR.data);
@@ -1747,6 +1991,7 @@ export default function Sincopa() {
     if (commitR.data) setCommitments(commitR.data);
     if (extrasR.data) setExtras(extrasR.data);
     if (histR.data)   setHistory(histR.data);
+    if (cardR.data)   setCards(cardR.data);
 
     // Build memberSalaries map — my own salary is always present; others' only for pareja
     if (salR.data) {
@@ -1836,16 +2081,18 @@ export default function Sincopa() {
     if (screen !== "app" || !household || !session) return;
     const interval = setInterval(async () => {
       await loadAllMembers(household.id, session);
-      const [recR, txR, commitR, extrasR] = await Promise.all([
+      const [recR, txR, commitR, extrasR, cardR] = await Promise.all([
         SB.from("recurring").select("*").eq("household_id", household.id),
         SB.from("transactions").select("*").eq("household_id", household.id),
         SB.from("commitments").select("*").eq("household_id", household.id),
         SB.from("extras").select("*").eq("household_id", household.id),
+        SB.from("cards").select("*").eq("household_id", household.id),
       ]);
       if (recR.data)    setRecurring(recR.data);
       if (txR.data)     setTransactions(txR.data);
       if (commitR.data) setCommitments(commitR.data);
       if (extrasR.data) setExtras(extrasR.data);
+      if (cardR.data)   setCards(cardR.data);
     }, 6000);
     return () => clearInterval(interval);
   }, [screen, household, session]);
@@ -1948,7 +2195,7 @@ export default function Sincopa() {
     isNeg, activeRule, currentMonth, currentYear,
     householdType, mySalary, memberSalaries, myUid,
   };
-  const data = { salary, extras, rule, custom, recurring, transactions, commitments, history, householdType };
+  const data = { salary, extras, rule, custom, recurring, transactions, commitments, history, householdType, cards };
 
   // ── ACTIONS ──
   const uid = () => session?.user?.id;
@@ -2083,6 +2330,33 @@ export default function Sincopa() {
       setWithdrawn(nw);
       await saveState({ withdrawn: nw });
     },
+    addCard: async (card) => {
+      const row = { ...card, household_id: household.id, user_id: uid(), purchases: [] };
+      const { data: d } = await SB.from("cards").insert(row).select();
+      if (d?.[0]) setCards(p=>[...p, d[0]]);
+    },
+    updateCard: async (id, card) => {
+      setCards(p=>p.map(c=>c.id===id?{...c,...card}:c));
+      await SB.from("cards").update(card).eq("id", id);
+    },
+    deleteCard: async (id) => {
+      setCards(p=>p.filter(c=>c.id!==id));
+      await SB.from("cards").delete().eq("id", id);
+    },
+    addCardPurchase: async (cardId, purchase) => {
+      const card = cards.find(c=>c.id===cardId);
+      if (!card) return;
+      const purchases = [...(card.purchases||[]), { ...purchase, id: Date.now(), user_id: uid(), date: todayStr() }];
+      setCards(p=>p.map(c=>c.id===cardId?{...c,purchases}:c));
+      await SB.from("cards").update({ purchases }).eq("id", cardId);
+    },
+    deleteCardPurchase: async (cardId, purchaseId) => {
+      const card = cards.find(c=>c.id===cardId);
+      if (!card) return;
+      const purchases = (card.purchases||[]).filter(p=>p.id!==purchaseId);
+      setCards(p=>p.map(c=>c.id===cardId?{...c,purchases}:c));
+      await SB.from("cards").update({ purchases }).eq("id", cardId);
+    },
     promoteMember: async (targetUserId) => {
       await SB.from("household_members").update({ role: "admin" }).eq("household_id", household.id).eq("user_id", targetUserId);
       await loadAllMembers(household.id, session);
@@ -2111,11 +2385,12 @@ export default function Sincopa() {
 
   const showHogarTab = householdType === "pareja" || householdType === "roomies";
   const TABS = [
-    {id:"home",        Icon:Home,     label:"Inicio"},
-    {id:"gastos",      Icon:List,     label:"Gastos"},
-    {id:"compromisos", Icon:Layers,   label:"Compromisos"},
+    {id:"home",        Icon:Home,       label:"Inicio"},
+    {id:"gastos",      Icon:List,       label:"Gastos"},
+    {id:"compromisos", Icon:Layers,     label:"Compromisos"},
+    {id:"tarjetas",    Icon:CreditCard, label:"Tarjetas"},
     ...(showHogarTab ? [{id:"hogar", Icon:Users, label:"Hogar"}] : []),
-    {id:"config",      Icon:Settings, label:"Config"},
+    {id:"config",      Icon:Settings,   label:"Config"},
   ];
 
   return (
@@ -2127,6 +2402,7 @@ export default function Sincopa() {
         {tab==="home"        && <HomeScreen        derived={derived} members={members} onHistory={()=>setShowHistory(true)} onEmergency={()=>setShowEmergency(true)}/>}
         {tab==="gastos"      && <GastosScreen      data={data} derived={derived} actions={actions} members={members} myProfile={myProfile}/>}
         {tab==="compromisos" && <CompromisosScreen data={data} derived={derived} actions={actions} members={members}/>}
+        {tab==="tarjetas"    && <CardsScreen       data={data} actions={actions} members={members} session={session}/>}
         {tab==="hogar"       && <HogarScreen       data={data} derived={derived} actions={actions} members={members} session={session} household={household}/>}
         {tab==="config"      && <ConfigScreen      data={data} actions={actions} session={session} household={household} members={members} onSignOut={handleSignOut} derived={derived}/>}
       </div>
