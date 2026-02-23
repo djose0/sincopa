@@ -776,7 +776,7 @@ function GastosScreen({ data, derived, actions, members, myProfile }) {
   function handleAddGasto() {
     if(!nGasto.name||!nGasto.amount) return;
     // cardId is stored as the card's actual id value (number from Supabase)
-    const selectedCard = cardId ? (cards||[]).find(c=>c.id===cardId) : null;
+    const selectedCard = cardId ? (cards||[]).find(c=>String(c.id)===String(cardId)) : null;
 
     if(isRecurring) {
       // Recurring: always goes to recurring table, card_id is just metadata
@@ -878,7 +878,7 @@ function GastosScreen({ data, derived, actions, members, myProfile }) {
                     💵 Efectivo/débito
                   </button>
                   {(cards||[]).map(c=>(
-                    <button key={c.id} onClick={()=>setCardId(c.id)} style={{border:`1.5px solid ${cardId===c.id?(c.color||C.card_color):C.border}`,borderRadius:10,background:cardId===c.id?(c.color||C.card_color)+"18":"transparent",color:cardId===c.id?(c.color||C.card_color):C.muted,fontFamily:FB,fontSize:11,fontWeight:600,padding:"5px 12px",cursor:"pointer",display:"flex",alignItems:"center",gap:4}}>
+                    <button key={c.id} onClick={()=>setCardId(String(c.id))} style={{border:`1.5px solid ${cardId===String(c.id)?(c.color||C.card_color):C.border}`,borderRadius:10,background:cardId===String(c.id)?(c.color||C.card_color)+"18":"transparent",color:cardId===String(c.id)?(c.color||C.card_color):C.muted,fontFamily:FB,fontSize:11,fontWeight:600,padding:"5px 12px",cursor:"pointer",display:"flex",alignItems:"center",gap:4}}>
                       <CreditCard size={12}/>{c.name}
                     </button>
                   ))}
@@ -967,8 +967,32 @@ function GastosScreen({ data, derived, actions, members, myProfile }) {
               ))}
             </div>
           )}
-          {recurring.length===0&&transactions.filter(t=>t.category!=="savings").length===0&&(
+          {recurring.length===0&&transactions.filter(t=>t.category!=="savings").length===0&&(cards||[]).every(c=>!(c.purchases||[]).length)&&(
             <div style={{textAlign:"center",color:C.muted,fontSize:13,padding:"32px 0",fontFamily:FB}}>Agrega tu primer gasto del mes</div>
+          )}
+
+          {/* Card purchases — shown in gastos list for visibility */}
+          {(cards||[]).some(c=>(c.purchases||[]).length>0)&&(
+            <div style={{marginTop:4}}>
+              <div style={{fontSize:11,fontWeight:700,color:C.muted,textTransform:"uppercase",letterSpacing:0.8,fontFamily:FB,marginBottom:8}}>Compras con tarjeta</div>
+              {(cards||[]).flatMap(card=>(card.purchases||[]).map(p=>({...p,_card:card}))).sort((a,b)=>b.date?.localeCompare(a.date)).map(p=>(
+                <Card key={p.id} style={{marginBottom:8,padding:"13px 16px",background:C.card_color+"06",border:`1px solid ${p._card.color||C.card_color}20`}}>
+                  <div style={{display:"flex",alignItems:"center",gap:10}}>
+                    <div style={{flex:1}}>
+                      <div style={{fontSize:13,fontWeight:600,color:C.ink,fontFamily:FB}}>{p.name}</div>
+                      <div style={{display:"flex",alignItems:"center",gap:6,marginTop:2,flexWrap:"wrap"}}>
+                        <span style={{fontSize:10,color:C.muted,fontFamily:FB}}>{p.date}</span>
+                        <Pill color={p._card.color||C.card_color} small><CreditCard size={9}/> {p._card.name}</Pill>
+                        <Pill color={p.category==="needs"?C.needs:C.wants} small>{p.category==="needs"?"Necesidad":"Deseo"}</Pill>
+                        {p.user_id&&members?.[p.user_id]&&<AuthorTag profile={members[p.user_id]}/>}
+                      </div>
+                    </div>
+                    <div style={{fontFamily:FM,fontSize:15,fontWeight:700,color:p._card.color||C.card_color}}>-{fmt(p.amount)}</div>
+                    <button onClick={()=>actions.deleteCardPurchase(p._card.id,p.id)} style={{border:`1.5px solid ${C.border}`,borderRadius:8,background:"transparent",padding:6,cursor:"pointer",display:"flex"}}><Trash2 size={12} color={C.red}/></button>
+                  </div>
+                </Card>
+              ))}
+            </div>
           )}
         </div>
       )}
@@ -2515,18 +2539,18 @@ export default function Sincopa() {
       await SB.from("cards").delete().eq("id", id);
     },
     addCardPurchase: async (cardId, purchase) => {
-      const card = cards.find(c=>c.id===cardId);
-      if (!card) return;
+      const card = cards.find(c=>String(c.id)===String(cardId));
+      if (!card) { console.warn("Card not found:", cardId, cards.map(c=>c.id)); return; }
       const purchases = [...(card.purchases||[]), { ...purchase, id: Date.now(), user_id: uid(), date: todayStr() }];
-      setCards(p=>p.map(c=>c.id===cardId?{...c,purchases}:c));
-      await SB.from("cards").update({ purchases }).eq("id", cardId);
+      setCards(p=>p.map(c=>String(c.id)===String(cardId)?{...c,purchases}:c));
+      await SB.from("cards").update({ purchases }).eq("id", card.id);
     },
     deleteCardPurchase: async (cardId, purchaseId) => {
-      const card = cards.find(c=>c.id===cardId);
+      const card = cards.find(c=>String(c.id)===String(cardId));
       if (!card) return;
       const purchases = (card.purchases||[]).filter(p=>p.id!==purchaseId);
-      setCards(p=>p.map(c=>c.id===cardId?{...c,purchases}:c));
-      await SB.from("cards").update({ purchases }).eq("id", cardId);
+      setCards(p=>p.map(c=>String(c.id)===String(cardId)?{...c,purchases}:c));
+      await SB.from("cards").update({ purchases }).eq("id", card.id);
     },
     switchHousehold: async (hh) => {
       setHousehold(hh);
