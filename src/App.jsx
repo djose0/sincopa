@@ -486,17 +486,15 @@ function CommitForm({ onSave, onClose, editing, cards }) {
             <Field label="Notas (opcional)" value={notes} onChange={e=>setNotes(e.target.value)} placeholder="Tarjeta BBVA..."/>
             {(cards||[]).length>0&&(
               <div>
-                <label style={{fontSize:10,fontWeight:700,color:C.muted,textTransform:"uppercase",letterSpacing:0.8,fontFamily:FB,display:"block",marginBottom:6}}>Se cobra a tarjeta (opcional)</label>
-                <div style={{display:"flex",gap:6,flexWrap:"wrap"}}>
-                  <button type="button" onClick={()=>setCardId("")} style={{border:`1.5px solid ${!cardId?C.ink:C.border}`,borderRadius:10,background:!cardId?C.ink+"10":"transparent",color:!cardId?C.ink:C.muted,fontFamily:FB,fontSize:11,fontWeight:600,padding:"5px 12px",cursor:"pointer"}}>
-                    Sin tarjeta
-                  </button>
-                  {(cards||[]).map(c=>(
-                    <button type="button" key={c.id} onClick={()=>setCardId(c.id)} style={{border:`1.5px solid ${cardId===c.id?(c.color||C.card_color):C.border}`,borderRadius:10,background:cardId===c.id?(c.color||C.card_color)+"18":"transparent",color:cardId===c.id?(c.color||C.card_color):C.muted,fontFamily:FB,fontSize:11,fontWeight:600,padding:"5px 12px",cursor:"pointer",display:"flex",alignItems:"center",gap:4}}>
-                      <CreditCard size={11}/>{c.name}
-                    </button>
-                  ))}
-                </div>
+                <label style={{fontSize:10,fontWeight:700,color:C.muted,textTransform:"uppercase",letterSpacing:0.8,fontFamily:FB,display:"block",marginBottom:6}}>Método de cobro</label>
+                <button type="button" onClick={()=>setCardId(p=>p?"":(cards[0]?.id||""))} style={{display:"flex",alignItems:"center",gap:8,border:`1.5px solid ${cardId?(cards[0]?.color||C.card_color):C.border}`,borderRadius:12,background:cardId?(cards[0]?.color||C.card_color)+"10":"transparent",padding:"10px 14px",cursor:"pointer",width:"100%"}}>
+                  <div style={{width:36,height:20,borderRadius:10,background:cardId?(cards[0]?.color||C.card_color):C.border,position:"relative",flexShrink:0}}>
+                    <div style={{position:"absolute",top:2,left:cardId?18:2,width:16,height:16,borderRadius:8,background:"#fff",transition:"left 0.2s"}}/>
+                  </div>
+                  <span style={{fontFamily:FB,fontSize:13,fontWeight:600,color:cardId?(cards[0]?.color||C.card_color):C.muted}}>
+                    {cardId?`💳 Se cobra a ${cards[0]?.name}`:"💵 No usa tarjeta"}
+                  </span>
+                </button>
               </div>
             )}
             <Btn onClick={submit} full color={C.commit}>{editing?"Guardar":"Agregar compromiso"}</Btn>
@@ -775,23 +773,18 @@ function GastosScreen({ data, derived, actions, members, myProfile }) {
 
   function handleAddGasto() {
     if(!nGasto.name||!nGasto.amount) return;
-    // cardId is stored as the card's actual id value (number from Supabase)
-    const selectedCard = cardId ? (cards||[]).find(c=>String(c.id)===String(cardId)) : null;
-
+    const card = cardId ? cards[0] : null;
     if(isRecurring) {
-      // Recurring: always goes to recurring table, card_id is just metadata
-      actions.addRec({icon:"📋",label:nGasto.name,amount:nGasto.amount,category:autoCatName(nGasto.name),for_house:isRoomies?forHouse:true,card_id:selectedCard?.id||null});
-    } else if(selectedCard) {
-      // Card purchase: ONLY goes to cards.purchases, NOT to transactions
-      // It won't affect the budget until the billing cycle closes
-      actions.addCardPurchase(selectedCard.id, {name:nGasto.name, amount:+nGasto.amount, category:autoCatName(nGasto.name)});
+      actions.addRec({icon:"📋",label:nGasto.name,amount:nGasto.amount,category:autoCatName(nGasto.name),for_house:isRoomies?forHouse:true,card_id:card?.id||null});
+    } else if(card) {
+      // Card purchase: only in cards.purchases, not in transactions
+      actions.addCardPurchase(card.id, {name:nGasto.name, amount:+nGasto.amount, category:autoCatName(nGasto.name)});
     } else {
-      // Cash/debit: goes to transactions normally, affects budget immediately
-      actions.addTx({...nGasto, for_house:isRoomies?forHouse:true, card_id:null},"auto",()=>{});
+      actions.addTx({...nGasto, for_house:isRoomies?forHouse:true},"auto",()=>{});
     }
     setNGasto({name:"",amount:""});
     setIsRecurring(false);
-    setCardId("");
+    setCardId(null);
   }
 
   return (
@@ -869,22 +862,21 @@ function GastosScreen({ data, derived, actions, members, myProfile }) {
               </div>
             )}
             {nGasto.name&&<div style={{fontSize:11,color:C.muted,fontFamily:FB,marginTop:8}}>Categoría auto → <Pill color={autoCatName(nGasto.name)==="needs"?C.needs:C.wants} small>{autoCatName(nGasto.name)==="needs"?"Necesidad":"Deseo"}</Pill></div>}
-            {/* Card selector — only when cards exist */}
-            {(cards||[]).length>0&&(
-              <div style={{marginTop:8}}>
-                <div style={{fontSize:10,color:C.muted,fontWeight:700,textTransform:"uppercase",letterSpacing:0.8,fontFamily:FB,marginBottom:6}}>Método de pago</div>
-                <div style={{display:"flex",gap:6,flexWrap:"wrap"}}>
-                  <button onClick={()=>setCardId("")} style={{border:`1.5px solid ${!cardId?C.ink:C.border}`,borderRadius:10,background:!cardId?C.ink+"10":"transparent",color:!cardId?C.ink:C.muted,fontFamily:FB,fontSize:11,fontWeight:600,padding:"5px 12px",cursor:"pointer"}}>
-                    💵 Efectivo/débito
+            {/* Card toggle — only if card registered */}
+            {(cards||[]).length>0&&!isRecurring&&(()=>{
+              const card = cards[0];
+              return (
+                <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",background:cardId?card.color+"12":C.bg,borderRadius:12,padding:"10px 14px",marginTop:8,border:`1px solid ${cardId?card.color+"40":C.border}`}}>
+                  <div>
+                    <div style={{fontFamily:FB,fontSize:13,fontWeight:600,color:cardId?card.color:C.muted}}>{cardId?`💳 ${card.name}`:"💵 Efectivo / débito"}</div>
+                    <div style={{fontFamily:FB,fontSize:11,color:C.muted,marginTop:1}}>{cardId?"Se acumula hasta el corte":"Afecta el saldo ahora"}</div>
+                  </div>
+                  <button onClick={()=>setCardId(p=>p?null:card.id)} style={{width:52,height:28,borderRadius:14,background:cardId?(card.color||C.card_color):C.border,border:"none",cursor:"pointer",position:"relative",flexShrink:0}}>
+                    <div style={{position:"absolute",top:3,left:cardId?26:3,width:22,height:22,borderRadius:11,background:"#fff",transition:"left 0.2s",boxShadow:"0 1px 3px rgba(0,0,0,0.2)"}}/>
                   </button>
-                  {(cards||[]).map(c=>(
-                    <button key={c.id} onClick={()=>setCardId(String(c.id))} style={{border:`1.5px solid ${cardId===String(c.id)?(c.color||C.card_color):C.border}`,borderRadius:10,background:cardId===String(c.id)?(c.color||C.card_color)+"18":"transparent",color:cardId===String(c.id)?(c.color||C.card_color):C.muted,fontFamily:FB,fontSize:11,fontWeight:600,padding:"5px 12px",cursor:"pointer",display:"flex",alignItems:"center",gap:4}}>
-                      <CreditCard size={12}/>{c.name}
-                    </button>
-                  ))}
                 </div>
-              </div>
-            )}
+              );
+            })()}
           </Card>
 
           {/* Recurring items */}
@@ -1949,39 +1941,40 @@ function ConfigScreen({ data, actions, session, household, members, onSignOut, d
         </div>
       </Card>
 
-      {/* Tarjetas de crédito */}
+      {/* Tarjeta de crédito — solo una por hogar */}
       <Card style={{marginBottom:14}}>
-        <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:14}}>
-          <div style={{fontFamily:FB,fontSize:14,fontWeight:700,color:C.ink}}>💳 Tarjetas de crédito</div>
-          <button onClick={()=>{setEditingCard(null);setShowCardForm(true);}} style={{border:`1.5px solid ${C.card_color}`,borderRadius:10,background:"transparent",color:C.card_color,fontFamily:FB,fontSize:12,fontWeight:600,padding:"5px 12px",cursor:"pointer",display:"flex",alignItems:"center",gap:4}}><Plus size={12}/>Nueva</button>
-        </div>
-        {(cards||[]).length===0&&(
-          <div style={{textAlign:"center",color:C.muted,fontSize:12,fontFamily:FB,padding:"8px 0"}}>Sin tarjetas registradas</div>
-        )}
-        {(cards||[]).map(card=>{
-          const purchases = card.purchases||[];
+        <div style={{fontFamily:FB,fontSize:14,fontWeight:700,color:C.ink,marginBottom:14}}>💳 Tarjeta de crédito</div>
+        {(cards||[]).length===0 ? (
+          <>
+            <div style={{fontSize:12,color:C.muted,fontFamily:FB,marginBottom:10}}>Registra tu tarjeta principal. Los gastos que marques "con tarjeta" se acumularán hasta el día de corte.</div>
+            <button onClick={()=>{setShowCardForm(true);}} style={{width:"100%",border:`1.5px solid ${C.card_color}`,borderRadius:12,background:C.card_color+"08",color:C.card_color,fontFamily:FB,fontWeight:600,fontSize:13,padding:12,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",gap:6}}><Plus size={14}/>Agregar tarjeta</button>
+          </>
+        ) : (()=>{
+          const card = cards[0];
           const now = new Date();
           let cycleStart = new Date(now.getFullYear(), now.getMonth(), (card.cut_day||1)+1);
           if (cycleStart > now) cycleStart = new Date(now.getFullYear(), now.getMonth()-1, (card.cut_day||1)+1);
-          const cyclePurchases = purchases.filter(p=>p.date>=cycleStart.toISOString().slice(0,10));
-          const total = cyclePurchases.reduce((s,p)=>s+(+p.amount||0),0);
+          const total = (card.purchases||[]).filter(p=>p.date>=cycleStart.toISOString().slice(0,10)).reduce((s,p)=>s+(+p.amount||0),0);
           const limit = +card.limit||0;
           return (
-            <div key={card.id} style={{display:"flex",alignItems:"center",gap:10,padding:"10px 12px",background:C.bg,borderRadius:12,marginBottom:8}}>
-              <div style={{width:12,height:28,borderRadius:6,background:card.color||C.card_color,flexShrink:0}}/>
-              <div style={{flex:1}}>
-                <div style={{fontFamily:FB,fontSize:13,fontWeight:700,color:C.ink}}>{card.name}</div>
-                <div style={{fontSize:11,color:C.muted,fontFamily:FB}}>
-                  {fmt(total)} usado · {fmt(limit-total)} disponible
-                  {card.cut_day&&` · corte día ${card.cut_day}`}
-                  {card.pay_day&&` · pago día ${card.pay_day}`}
+            <div style={{padding:"10px 12px",background:C.bg,borderRadius:12}}>
+              <div style={{display:"flex",alignItems:"center",gap:10}}>
+                <div style={{width:12,height:36,borderRadius:6,background:card.color||C.card_color,flexShrink:0}}/>
+                <div style={{flex:1}}>
+                  <div style={{fontFamily:FB,fontSize:14,fontWeight:700,color:C.ink}}>{card.name}</div>
+                  <div style={{fontSize:11,color:C.muted,fontFamily:FB,marginTop:2}}>
+                    {fmt(total)} acumulado · {fmt(limit-total)} disponible
+                  </div>
+                  <div style={{fontSize:11,color:C.muted,fontFamily:FB}}>
+                    {card.cut_day&&`Corte día ${card.cut_day}`}{card.pay_day&&` · Pago día ${card.pay_day}`}
+                  </div>
                 </div>
+                <button onClick={()=>{setEditingCard(card);setShowCardForm(true);}} style={{border:`1.5px solid ${C.border}`,borderRadius:8,background:"transparent",padding:"6px 8px",cursor:"pointer",display:"flex"}}><Pencil size={12} color={C.muted}/></button>
+                <button onClick={()=>{if(confirm(`¿Eliminar ${card.name}?`))actions.deleteCard(card.id);}} style={{border:`1.5px solid ${C.border}`,borderRadius:8,background:"transparent",padding:"6px 8px",cursor:"pointer",display:"flex"}}><Trash2 size={12} color={C.red}/></button>
               </div>
-              <button onClick={()=>{setEditingCard(card);setShowCardForm(true);}} style={{border:`1.5px solid ${C.border}`,borderRadius:8,background:"transparent",padding:"5px 8px",cursor:"pointer",display:"flex"}}><Pencil size={12} color={C.muted}/></button>
-              <button onClick={()=>{if(confirm(`¿Eliminar ${card.name}?`))actions.deleteCard(card.id);}} style={{border:`1.5px solid ${C.border}`,borderRadius:8,background:"transparent",padding:"5px 8px",cursor:"pointer",display:"flex"}}><Trash2 size={12} color={C.red}/></button>
             </div>
           );
-        })}
+        })()}
         {showCardForm&&<CardForm editing={editingCard} onSave={c=>{editingCard?actions.updateCard(editingCard.id,c):actions.addCard(c);setEditingCard(null);setShowCardForm(false);}} onClose={()=>{setShowCardForm(false);setEditingCard(null);}}/>}
       </Card>
 
@@ -2539,17 +2532,17 @@ export default function Sincopa() {
       await SB.from("cards").delete().eq("id", id);
     },
     addCardPurchase: async (cardId, purchase) => {
-      const card = cards.find(c=>String(c.id)===String(cardId));
-      if (!card) { console.warn("Card not found:", cardId, cards.map(c=>c.id)); return; }
+      const card = cards[0]; // single card per household
+      if (!card) return;
       const purchases = [...(card.purchases||[]), { ...purchase, id: Date.now(), user_id: uid(), date: todayStr() }];
-      setCards(p=>p.map(c=>String(c.id)===String(cardId)?{...c,purchases}:c));
+      setCards(p=>p.map(c=>c.id===card.id?{...c,purchases}:c));
       await SB.from("cards").update({ purchases }).eq("id", card.id);
     },
     deleteCardPurchase: async (cardId, purchaseId) => {
-      const card = cards.find(c=>String(c.id)===String(cardId));
+      const card = cards[0];
       if (!card) return;
       const purchases = (card.purchases||[]).filter(p=>p.id!==purchaseId);
-      setCards(p=>p.map(c=>String(c.id)===String(cardId)?{...c,purchases}:c));
+      setCards(p=>p.map(c=>c.id===card.id?{...c,purchases}:c));
       await SB.from("cards").update({ purchases }).eq("id", card.id);
     },
     switchHousehold: async (hh) => {
