@@ -428,7 +428,7 @@ function AmortSheet({ item, onClose }) {
 }
 
 // ─── COMMIT FORM ──────────────────────────────────────────────────────────────
-function CommitForm({ onSave, onClose, editing }) {
+function CommitForm({ onSave, onClose, editing, cards }) {
   const [name,setName]=useState(editing?.name||"");
   const [type,setType]=useState(editing?.type||"subscription");
   const [monthly,setMonthly]=useState(editing?.monthly||"");
@@ -436,6 +436,7 @@ function CommitForm({ onSave, onClose, editing }) {
   const [paid,setPaid]=useState(editing?.paid||"0");
   const [billingDay,setBillingDay]=useState(editing?.billing_day||"");
   const [notes,setNotes]=useState(editing?.notes||"");
+  const [cardId,setCardId]=useState(editing?.card_id||"");
   const isD = type==="deferred"||type==="loan";
 
   function submit() {
@@ -447,7 +448,8 @@ function CommitForm({ onSave, onClose, editing }) {
       paid:isD?parseInt(paid)||0:null,
       billing_day:parseInt(billingDay)||null,
       notes, payments:editing?.payments||[],
-      date:editing?.date||todayStr(), active:true
+      date:editing?.date||todayStr(), active:true,
+      card_id: cardId||null,
     });
     onClose();
   }
@@ -482,6 +484,21 @@ function CommitForm({ onSave, onClose, editing }) {
               </div>
             )}
             <Field label="Notas (opcional)" value={notes} onChange={e=>setNotes(e.target.value)} placeholder="Tarjeta BBVA..."/>
+            {(cards||[]).length>0&&(
+              <div>
+                <label style={{fontSize:10,fontWeight:700,color:C.muted,textTransform:"uppercase",letterSpacing:0.8,fontFamily:FB,display:"block",marginBottom:6}}>Se cobra a tarjeta (opcional)</label>
+                <div style={{display:"flex",gap:6,flexWrap:"wrap"}}>
+                  <button type="button" onClick={()=>setCardId("")} style={{border:`1.5px solid ${!cardId?C.ink:C.border}`,borderRadius:10,background:!cardId?C.ink+"10":"transparent",color:!cardId?C.ink:C.muted,fontFamily:FB,fontSize:11,fontWeight:600,padding:"5px 12px",cursor:"pointer"}}>
+                    Sin tarjeta
+                  </button>
+                  {(cards||[]).map(c=>(
+                    <button type="button" key={c.id} onClick={()=>setCardId(String(c.id))} style={{border:`1.5px solid ${cardId===String(c.id)?(c.color||C.card_color):C.border}`,borderRadius:10,background:cardId===String(c.id)?(c.color||C.card_color)+"18":"transparent",color:cardId===String(c.id)?(c.color||C.card_color):C.muted,fontFamily:FB,fontSize:11,fontWeight:600,padding:"5px 12px",cursor:"pointer",display:"flex",alignItems:"center",gap:4}}>
+                      <CreditCard size={11}/>{c.name}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
             <Btn onClick={submit} full color={C.commit}>{editing?"Guardar":"Agregar compromiso"}</Btn>
           </div>
         </div>
@@ -588,8 +605,17 @@ function PayHistory({ payments, profiles, color, onMark, labelPaid, labelMark })
 }
 
 // ═══════════════ HOME SCREEN ══════════════════════════════════════════════════
-function HomeScreen({ derived, members, onHistory, onEmergency }) {
+function HomeScreen({ derived, members, onHistory, onEmergency, cards }) {
   const { baseInc,balanceCarryover,needsSpent,wantsSpent,savingsExtra,needsBudget,wantsBudget,savingsBudget,savingsDisplay,fourthBudget,fourthName,fourthActive,fourthDisplay,fourthUsed,txFourthIn,txFourthOut,totalBalance,monthSavings,totalSavings,commitmentTotal,commitmentPct,isNeg,activeRule,currentMonth,currentYear } = derived;
+
+  // Card cycle totals
+  const totalCardDebt = (cards||[]).reduce((s,card)=>{
+    const purchases = card.purchases||[];
+    const now = new Date();
+    let cycleStart = new Date(now.getFullYear(), now.getMonth(), (card.cut_day||1)+1);
+    if (cycleStart > now) cycleStart = new Date(now.getFullYear(), now.getMonth()-1, (card.cut_day||1)+1);
+    return s + purchases.filter(p=>p.date>=cycleStart.toISOString().slice(0,10)).reduce((a,p)=>a+(+p.amount||0),0);
+  }, 0);
   const totalSpent = needsSpent + wantsSpent;
   const spentPct = baseInc>0 ? clamp(Math.round((totalSpent+savingsDisplay+(fourthActive?fourthBudget:0))/baseInc*100),0,100) : 0;
   const segs = [
@@ -692,6 +718,36 @@ function HomeScreen({ derived, members, onHistory, onEmergency }) {
         </Card>
       </div>
 
+      {/* Cards total */}
+      {(cards||[]).length>0&&totalCardDebt>0&&(
+        <Card style={{marginBottom:14,background:C.card_color+"10",border:`1px solid ${C.card_color}25`}}>
+          <div style={{display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+            <div>
+              <div style={{fontSize:10,color:C.card_color,fontWeight:700,letterSpacing:0.8,textTransform:"uppercase",fontFamily:FB,marginBottom:4}}>💳 Tarjetas — a pagar</div>
+              <div style={{fontFamily:FD,fontSize:22,fontWeight:800,color:C.card_color}}>{fmt(totalCardDebt)}</div>
+              <div style={{fontSize:10,color:C.muted,marginTop:2,fontFamily:FB}}>acumulado este ciclo</div>
+            </div>
+            <div style={{textAlign:"right",display:"flex",flexDirection:"column",gap:4}}>
+              {(cards||[]).map(card=>{
+                const purchases = card.purchases||[];
+                const now = new Date();
+                let cycleStart = new Date(now.getFullYear(), now.getMonth(), (card.cut_day||1)+1);
+                if (cycleStart > now) cycleStart = new Date(now.getFullYear(), now.getMonth()-1, (card.cut_day||1)+1);
+                const total = purchases.filter(p=>p.date>=cycleStart.toISOString().slice(0,10)).reduce((a,p)=>a+(+p.amount||0),0);
+                if (!total) return null;
+                return (
+                  <div key={card.id} style={{display:"flex",alignItems:"center",gap:6}}>
+                    <div style={{width:8,height:8,borderRadius:2,background:card.color||C.card_color}}/>
+                    <span style={{fontSize:10,fontFamily:FB,color:C.muted}}>{card.name}</span>
+                    <span style={{fontSize:11,fontFamily:FM,fontWeight:700,color:C.card_color}}>{fmt(total)}</span>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        </Card>
+      )}
+
       {fourthActive&&(
         <Card style={{marginBottom:14,background:C.fourth+"12",border:`1px solid ${C.fourth}25`}}>
           <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start"}}>
@@ -719,11 +775,12 @@ function HomeScreen({ derived, members, onHistory, onEmergency }) {
 // ═══════════════ GASTOS SCREEN ════════════════════════════════════════════════
 function GastosScreen({ data, derived, actions, members, myProfile }) {
   const { needsSpent,wantsSpent,needsBudget,wantsBudget,savingsBudget,savingsExtra,activeRule,commitmentTotal,fourthActive,fourthName,fourthDisplay,fourthBudget,txFourthIn,txFourthOut,householdType } = derived;
-  const { recurring, transactions } = data;
+  const { recurring, transactions, cards } = data;
   const [tab,setTab]=useState("gastos");
   const [nGasto,setNGasto]=useState({name:"",amount:""});
   const [isRecurring,setIsRecurring]=useState(false);
-  const [forHouse,setForHouse]=useState(true); // roomies: is this a house expense?
+  const [forHouse,setForHouse]=useState(true);
+  const [cardId,setCardId]=useState(""); // "" = efectivo/débito, card id = tarjeta
   const [showQuick,setShowQuick]=useState(false);
   const [editTId,setEditTId]=useState(null);
   const [editT,setEditT]=useState({});
@@ -740,13 +797,19 @@ function GastosScreen({ data, derived, actions, members, myProfile }) {
 
   function handleAddGasto() {
     if(!nGasto.name||!nGasto.amount) return;
+    const txData = {...nGasto, for_house:isRoomies?forHouse:true, card_id:cardId||null};
     if(isRecurring) {
-      actions.addRec({icon:"📋",label:nGasto.name,amount:nGasto.amount,category:autoCatName(nGasto.name),for_house:isRoomies?forHouse:true});
+      actions.addRec({icon:"📋",label:nGasto.name,amount:nGasto.amount,category:autoCatName(nGasto.name),for_house:isRoomies?forHouse:true,card_id:cardId||null});
     } else {
-      actions.addTx({...nGasto,for_house:isRoomies?forHouse:true},"auto",()=>setNGasto({name:"",amount:""}));
+      actions.addTx(txData,"auto",()=>setNGasto({name:"",amount:""}));
+      // If paid with card, also register as purchase in that card's cycle
+      if(cardId) {
+        actions.addCardPurchase(cardId, {name:nGasto.name, amount:nGasto.amount, category:autoCatName(nGasto.name)});
+      }
     }
     setNGasto({name:"",amount:""});
     setIsRecurring(false);
+    setCardId("");
   }
 
   return (
@@ -824,6 +887,22 @@ function GastosScreen({ data, derived, actions, members, myProfile }) {
               </div>
             )}
             {nGasto.name&&<div style={{fontSize:11,color:C.muted,fontFamily:FB,marginTop:8}}>Categoría auto → <Pill color={autoCatName(nGasto.name)==="needs"?C.needs:C.wants} small>{autoCatName(nGasto.name)==="needs"?"Necesidad":"Deseo"}</Pill></div>}
+            {/* Card selector — only when cards exist */}
+            {(cards||[]).length>0&&(
+              <div style={{marginTop:8}}>
+                <div style={{fontSize:10,color:C.muted,fontWeight:700,textTransform:"uppercase",letterSpacing:0.8,fontFamily:FB,marginBottom:6}}>Método de pago</div>
+                <div style={{display:"flex",gap:6,flexWrap:"wrap"}}>
+                  <button onClick={()=>setCardId("")} style={{border:`1.5px solid ${!cardId?C.ink:C.border}`,borderRadius:10,background:!cardId?C.ink+"10":"transparent",color:!cardId?C.ink:C.muted,fontFamily:FB,fontSize:11,fontWeight:600,padding:"5px 12px",cursor:"pointer"}}>
+                    💵 Efectivo/débito
+                  </button>
+                  {(cards||[]).map(c=>(
+                    <button key={c.id} onClick={()=>setCardId(String(c.id))} style={{border:`1.5px solid ${cardId===String(c.id)?(c.color||C.card_color):C.border}`,borderRadius:10,background:cardId===String(c.id)?(c.color||C.card_color)+"18":"transparent",color:cardId===String(c.id)?(c.color||C.card_color):C.muted,fontFamily:FB,fontSize:11,fontWeight:600,padding:"5px 12px",cursor:"pointer",display:"flex",alignItems:"center",gap:4}}>
+                      <CreditCard size={12}/>{c.name}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
           </Card>
 
           {/* Recurring items */}
@@ -891,6 +970,7 @@ function GastosScreen({ data, derived, actions, members, myProfile }) {
                         <div style={{display:"flex",alignItems:"center",gap:6,marginTop:2,flexWrap:"wrap"}}>
                           <span style={{fontSize:10,color:C.muted,fontFamily:FB}}>{tx.date}</span>
                           <Pill color={tx.category==="needs"?C.needs:C.wants} small>{tx.category==="needs"?"Necesidad":"Deseo"}</Pill>
+                          {tx.card_id&&(()=>{const card=(cards||[]).find(c=>String(c.id)===String(tx.card_id));return card?<Pill color={card.color||C.card_color} small><CreditCard size={9}/> {card.name}</Pill>:null;})()}
                           {tx.user_id&&members?.[tx.user_id]&&<AuthorTag profile={members[tx.user_id]}/>}
                         </div>
                       </div>
@@ -1114,7 +1194,7 @@ function CompromisosScreen({ data, derived, actions, members }) {
 
   return (
     <div style={{padding:"0 16px 100px"}}>
-      {showForm&&<CommitForm editing={editing} onSave={c=>{actions.addCommitment(c);setEditing(null);}} onClose={()=>{setShowForm(false);setEditing(null);}}/>}
+      {showForm&&<CommitForm editing={editing} cards={cards||[]} onSave={c=>{actions.addCommitment(c);setEditing(null);}} onClose={()=>{setShowForm(false);setEditing(null);}}/>}
       {amortItem&&<AmortSheet item={amortItem} onClose={()=>setAmortItem(null)}/>}
       <div style={{padding:"20px 0 14px",display:"flex",justifyContent:"space-between",alignItems:"center"}}>
         <div>
@@ -1201,6 +1281,7 @@ function CompromisosScreen({ data, derived, actions, members }) {
                       <div style={{display:"flex",alignItems:"center",gap:6,marginBottom:6,flexWrap:"wrap"}}>
                         {c.date&&<span style={{fontSize:10,color:C.muted,fontFamily:FB}}>Desde {c.date}</span>}
                         {c.billing_day&&<Pill color={isDueToday?C.red:C.muted} small>{isDueToday?"⚠ Cobro hoy":"📅 Día "+c.billing_day}</Pill>}
+                        {c.card_id&&(()=>{const card=(cards||[]).find(x=>String(x.id)===String(c.card_id));return card?<Pill color={card.color||C.card_color} small><CreditCard size={9}/> {card.name}</Pill>:null;})()}
                         {c.user_id && members?.[c.user_id] && <AuthorTag profile={members[c.user_id]}/>}
                       </div>
                       {isD&&c.quotas>0&&(
@@ -1703,7 +1784,7 @@ function JoinHouseholdInline({ session, onJoined }) {
 
 // ═══════════════ CONFIG SCREEN ════════════════════════════════════════════════
 function ConfigScreen({ data, actions, session, household, members, onSignOut, derived }) {
-  const { salary, extras, rule, custom, householdType } = data;
+  const { salary, extras, rule, custom, householdType, cards } = data;
   const { memberSalaries } = derived;
   const myId = session?.user?.id;
   const isAdmin = members?.[myId]?.role === "admin";
@@ -1711,6 +1792,8 @@ function ConfigScreen({ data, actions, session, household, members, onSignOut, d
   const [editEId,setEditEId]=useState(null);
   const [editE,setEditE]=useState({});
   const [copied,setCopied]=useState(false);
+  const [showCardForm,setShowCardForm]=useState(false);
+  const [editingCard,setEditingCard]=useState(null);
 
   function copyCode() {
     if (navigator.clipboard) navigator.clipboard.writeText(household.invite_code);
@@ -1858,6 +1941,42 @@ function ConfigScreen({ data, actions, session, household, members, onSignOut, d
           <input type="number" placeholder="$" value={nExtra.amount} onChange={e=>setNExtra(p=>({...p,amount:e.target.value}))} style={{...SI,width:90,textAlign:"right"}}/>
           <button onClick={()=>{actions.addExtra(nExtra);setNExtra({label:"",amount:""});}} style={{border:"none",background:C.ink,borderRadius:10,width:36,height:38,display:"flex",alignItems:"center",justifyContent:"center",cursor:"pointer"}}><Plus size={16} color="white"/></button>
         </div>
+      </Card>
+
+      {/* Tarjetas de crédito */}
+      <Card style={{marginBottom:14}}>
+        <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:14}}>
+          <div style={{fontFamily:FB,fontSize:14,fontWeight:700,color:C.ink}}>💳 Tarjetas de crédito</div>
+          <button onClick={()=>{setEditingCard(null);setShowCardForm(true);}} style={{border:`1.5px solid ${C.card_color}`,borderRadius:10,background:"transparent",color:C.card_color,fontFamily:FB,fontSize:12,fontWeight:600,padding:"5px 12px",cursor:"pointer",display:"flex",alignItems:"center",gap:4}}><Plus size={12}/>Nueva</button>
+        </div>
+        {(cards||[]).length===0&&(
+          <div style={{textAlign:"center",color:C.muted,fontSize:12,fontFamily:FB,padding:"8px 0"}}>Sin tarjetas registradas</div>
+        )}
+        {(cards||[]).map(card=>{
+          const purchases = card.purchases||[];
+          const now = new Date();
+          let cycleStart = new Date(now.getFullYear(), now.getMonth(), (card.cut_day||1)+1);
+          if (cycleStart > now) cycleStart = new Date(now.getFullYear(), now.getMonth()-1, (card.cut_day||1)+1);
+          const cyclePurchases = purchases.filter(p=>p.date>=cycleStart.toISOString().slice(0,10));
+          const total = cyclePurchases.reduce((s,p)=>s+(+p.amount||0),0);
+          const limit = +card.limit||0;
+          return (
+            <div key={card.id} style={{display:"flex",alignItems:"center",gap:10,padding:"10px 12px",background:C.bg,borderRadius:12,marginBottom:8}}>
+              <div style={{width:12,height:28,borderRadius:6,background:card.color||C.card_color,flexShrink:0}}/>
+              <div style={{flex:1}}>
+                <div style={{fontFamily:FB,fontSize:13,fontWeight:700,color:C.ink}}>{card.name}</div>
+                <div style={{fontSize:11,color:C.muted,fontFamily:FB}}>
+                  {fmt(total)} usado · {fmt(limit-total)} disponible
+                  {card.cut_day&&` · corte día ${card.cut_day}`}
+                  {card.pay_day&&` · pago día ${card.pay_day}`}
+                </div>
+              </div>
+              <button onClick={()=>{setEditingCard(card);setShowCardForm(true);}} style={{border:`1.5px solid ${C.border}`,borderRadius:8,background:"transparent",padding:"5px 8px",cursor:"pointer",display:"flex"}}><Pencil size={12} color={C.muted}/></button>
+              <button onClick={()=>{if(confirm(`¿Eliminar ${card.name}?`))actions.deleteCard(card.id);}} style={{border:`1.5px solid ${C.border}`,borderRadius:8,background:"transparent",padding:"5px 8px",cursor:"pointer",display:"flex"}}><Trash2 size={12} color={C.red}/></button>
+            </div>
+          );
+        })}
+        {showCardForm&&<CardForm editing={editingCard} onSave={c=>{editingCard?actions.updateCard(editingCard.id,c):actions.addCard(c);setEditingCard(null);setShowCardForm(false);}} onClose={()=>{setShowCardForm(false);setEditingCard(null);}}/>}
       </Card>
 
       {/* Rule */}
@@ -2469,12 +2588,11 @@ export default function Sincopa() {
 
   const showHogarTab = householdType === "pareja" || householdType === "roomies";
   const TABS = [
-    {id:"home",        Icon:Home,       label:"Inicio"},
-    {id:"gastos",      Icon:List,       label:"Gastos"},
-    {id:"compromisos", Icon:Layers,     label:"Compromisos"},
-    {id:"tarjetas",    Icon:CreditCard, label:"Tarjetas"},
+    {id:"home",        Icon:Home,     label:"Inicio"},
+    {id:"gastos",      Icon:List,     label:"Gastos"},
+    {id:"compromisos", Icon:Layers,   label:"Compromisos"},
     ...(showHogarTab ? [{id:"hogar", Icon:Users, label:"Hogar"}] : []),
-    {id:"config",      Icon:Settings,   label:"Config"},
+    {id:"config",      Icon:Settings, label:"Config"},
   ];
 
   return (
@@ -2483,10 +2601,9 @@ export default function Sincopa() {
       {showEmergency && <EmerModal   available={totalSavings} onWithdraw={actions.withdraw} onClose={()=>setShowEmergency(false)}/>}
 
       <div style={{paddingBottom:80}}>
-        {tab==="home"        && <HomeScreen        derived={derived} members={members} onHistory={()=>setShowHistory(true)} onEmergency={()=>setShowEmergency(true)}/>}
+        {tab==="home"        && <HomeScreen        derived={derived} members={members} cards={data.cards} onHistory={()=>setShowHistory(true)} onEmergency={()=>setShowEmergency(true)}/>}
         {tab==="gastos"      && <GastosScreen      data={data} derived={derived} actions={actions} members={members} myProfile={myProfile}/>}
         {tab==="compromisos" && <CompromisosScreen data={data} derived={derived} actions={actions} members={members}/>}
-        {tab==="tarjetas"    && <CardsScreen       data={data} actions={actions} members={members} session={session}/>}
         {tab==="hogar"       && <HogarScreen       data={data} derived={derived} actions={actions} members={members} session={session} household={household}/>}
         {tab==="config"      && <ConfigScreen      data={data} actions={actions} session={session} household={household} members={members} onSignOut={handleSignOut} derived={derived}/>}
       </div>
