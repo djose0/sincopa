@@ -492,7 +492,7 @@ function CommitForm({ onSave, onClose, editing, cards }) {
                     Sin tarjeta
                   </button>
                   {(cards||[]).map(c=>(
-                    <button type="button" key={c.id} onClick={()=>setCardId(String(c.id))} style={{border:`1.5px solid ${cardId===String(c.id)?(c.color||C.card_color):C.border}`,borderRadius:10,background:cardId===String(c.id)?(c.color||C.card_color)+"18":"transparent",color:cardId===String(c.id)?(c.color||C.card_color):C.muted,fontFamily:FB,fontSize:11,fontWeight:600,padding:"5px 12px",cursor:"pointer",display:"flex",alignItems:"center",gap:4}}>
+                    <button type="button" key={c.id} onClick={()=>setCardId(c.id)} style={{border:`1.5px solid ${cardId===c.id?(c.color||C.card_color):C.border}`,borderRadius:10,background:cardId===c.id?(c.color||C.card_color)+"18":"transparent",color:cardId===c.id?(c.color||C.card_color):C.muted,fontFamily:FB,fontSize:11,fontWeight:600,padding:"5px 12px",cursor:"pointer",display:"flex",alignItems:"center",gap:4}}>
                       <CreditCard size={11}/>{c.name}
                     </button>
                   ))}
@@ -718,51 +718,24 @@ function HomeScreen({ derived, members, onHistory, onEmergency, cards }) {
         </Card>
       </div>
 
-      {/* Cards total */}
-      {(cards||[]).length>0&&totalCardDebt>0&&(
-        <Card style={{marginBottom:14,background:C.card_color+"10",border:`1px solid ${C.card_color}25`}}>
-          <div style={{display:"flex",justifyContent:"space-between",alignItems:"center"}}>
-            <div>
-              <div style={{fontSize:10,color:C.card_color,fontWeight:700,letterSpacing:0.8,textTransform:"uppercase",fontFamily:FB,marginBottom:4}}>💳 Tarjetas — a pagar</div>
+      {/* Cards + Fourth: compact 2-col grid like savings/compromisos */}
+      {((cards||[]).length>0 || fourthActive) && (
+        <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12,marginBottom:14}}>
+          {fourthActive && (
+            <Card style={{background:C.fourth+"12",border:`1px solid ${C.fourth}25`}}>
+              <div style={{fontSize:10,color:C.fourth,fontWeight:700,letterSpacing:0.8,textTransform:"uppercase",fontFamily:FB,marginBottom:4}}>{fourthName}</div>
+              <div style={{fontFamily:FD,fontSize:22,fontWeight:800,color:C.fourth}}>{fmt(fourthBudget + txFourthIn - txFourthOut)}</div>
+              <div style={{fontSize:10,color:C.muted,marginTop:2,fontFamily:FB}}>guardado</div>
+            </Card>
+          )}
+          {(cards||[]).length>0 && (
+            <Card style={{background:C.card_color+"10",border:`1px solid ${C.card_color}25`}}>
+              <div style={{fontSize:10,color:C.card_color,fontWeight:700,letterSpacing:0.8,textTransform:"uppercase",fontFamily:FB,marginBottom:4}}>💳 Tarjetas</div>
               <div style={{fontFamily:FD,fontSize:22,fontWeight:800,color:C.card_color}}>{fmt(totalCardDebt)}</div>
-              <div style={{fontSize:10,color:C.muted,marginTop:2,fontFamily:FB}}>acumulado este ciclo</div>
-            </div>
-            <div style={{textAlign:"right",display:"flex",flexDirection:"column",gap:4}}>
-              {(cards||[]).map(card=>{
-                const purchases = card.purchases||[];
-                const now = new Date();
-                let cycleStart = new Date(now.getFullYear(), now.getMonth(), (card.cut_day||1)+1);
-                if (cycleStart > now) cycleStart = new Date(now.getFullYear(), now.getMonth()-1, (card.cut_day||1)+1);
-                const total = purchases.filter(p=>p.date>=cycleStart.toISOString().slice(0,10)).reduce((a,p)=>a+(+p.amount||0),0);
-                if (!total) return null;
-                return (
-                  <div key={card.id} style={{display:"flex",alignItems:"center",gap:6}}>
-                    <div style={{width:8,height:8,borderRadius:2,background:card.color||C.card_color}}/>
-                    <span style={{fontSize:10,fontFamily:FB,color:C.muted}}>{card.name}</span>
-                    <span style={{fontSize:11,fontFamily:FM,fontWeight:700,color:C.card_color}}>{fmt(total)}</span>
-                  </div>
-                );
-              })}
-            </div>
-          </div>
-        </Card>
-      )}
-
-      {fourthActive&&(
-        <Card style={{marginBottom:14,background:C.fourth+"12",border:`1px solid ${C.fourth}25`}}>
-          <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start"}}>
-            <div>
-              <div style={{fontSize:10,color:C.fourth,fontWeight:700,letterSpacing:0.8,textTransform:"uppercase",fontFamily:FB,marginBottom:2}}>{fourthName}</div>
-              <div style={{fontFamily:FD,fontSize:28,fontWeight:800,color:C.fourth}}>{fmt(fourthBudget + txFourthIn - txFourthOut)}</div>
-              <div style={{fontSize:11,color:C.muted,fontFamily:FB,marginTop:2}}>guardado en el fondo</div>
-            </div>
-            <div style={{textAlign:"right",display:"flex",flexDirection:"column",gap:3,marginTop:4}}>
-              <div style={{fontSize:11,color:C.muted,fontFamily:FB}}>{fmt(fourthBudget)} automático</div>
-              {txFourthIn>0&&<div style={{fontSize:11,color:C.fourth,fontFamily:FB,fontWeight:600}}>+{fmt(txFourthIn)} extra</div>}
-              {txFourthOut>0&&<div style={{fontSize:11,color:C.red,fontFamily:FB,fontWeight:600}}>−{fmt(txFourthOut)} usado</div>}
-            </div>
-          </div>
-        </Card>
+              <div style={{fontSize:10,color:C.muted,marginTop:2,fontFamily:FB}}>ciclo actual</div>
+            </Card>
+          )}
+        </div>
       )}
 
       <button onClick={onEmergency} style={{width:"100%",border:`2px solid ${C.red}`,borderRadius:16,background:"transparent",color:C.red,fontFamily:FB,fontWeight:700,fontSize:14,padding:14,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",gap:8}}>
@@ -797,14 +770,14 @@ function GastosScreen({ data, derived, actions, members, myProfile }) {
 
   function handleAddGasto() {
     if(!nGasto.name||!nGasto.amount) return;
-    const txData = {...nGasto, for_house:isRoomies?forHouse:true, card_id:cardId||null};
+    const selectedCardId = cardId ? +cardId : null; // always store as number
+    const txData = {...nGasto, for_house:isRoomies?forHouse:true, card_id:selectedCardId};
     if(isRecurring) {
-      actions.addRec({icon:"📋",label:nGasto.name,amount:nGasto.amount,category:autoCatName(nGasto.name),for_house:isRoomies?forHouse:true,card_id:cardId||null});
+      actions.addRec({icon:"📋",label:nGasto.name,amount:nGasto.amount,category:autoCatName(nGasto.name),for_house:isRoomies?forHouse:true,card_id:selectedCardId});
     } else {
       actions.addTx(txData,"auto",()=>setNGasto({name:"",amount:""}));
-      // If paid with card, also register as purchase in that card's cycle
-      if(cardId) {
-        actions.addCardPurchase(cardId, {name:nGasto.name, amount:nGasto.amount, category:autoCatName(nGasto.name)});
+      if(selectedCardId) {
+        actions.addCardPurchase(selectedCardId, {name:nGasto.name, amount:nGasto.amount, category:autoCatName(nGasto.name)});
       }
     }
     setNGasto({name:"",amount:""});
@@ -896,7 +869,7 @@ function GastosScreen({ data, derived, actions, members, myProfile }) {
                     💵 Efectivo/débito
                   </button>
                   {(cards||[]).map(c=>(
-                    <button key={c.id} onClick={()=>setCardId(String(c.id))} style={{border:`1.5px solid ${cardId===String(c.id)?(c.color||C.card_color):C.border}`,borderRadius:10,background:cardId===String(c.id)?(c.color||C.card_color)+"18":"transparent",color:cardId===String(c.id)?(c.color||C.card_color):C.muted,fontFamily:FB,fontSize:11,fontWeight:600,padding:"5px 12px",cursor:"pointer",display:"flex",alignItems:"center",gap:4}}>
+                    <button key={c.id} onClick={()=>setCardId(c.id)} style={{border:`1.5px solid ${cardId===c.id?(c.color||C.card_color):C.border}`,borderRadius:10,background:cardId===c.id?(c.color||C.card_color)+"18":"transparent",color:cardId===c.id?(c.color||C.card_color):C.muted,fontFamily:FB,fontSize:11,fontWeight:600,padding:"5px 12px",cursor:"pointer",display:"flex",alignItems:"center",gap:4}}>
                       <CreditCard size={12}/>{c.name}
                     </button>
                   ))}
@@ -970,7 +943,7 @@ function GastosScreen({ data, derived, actions, members, myProfile }) {
                         <div style={{display:"flex",alignItems:"center",gap:6,marginTop:2,flexWrap:"wrap"}}>
                           <span style={{fontSize:10,color:C.muted,fontFamily:FB}}>{tx.date}</span>
                           <Pill color={tx.category==="needs"?C.needs:C.wants} small>{tx.category==="needs"?"Necesidad":"Deseo"}</Pill>
-                          {tx.card_id&&(()=>{const card=(cards||[]).find(c=>String(c.id)===String(tx.card_id));return card?<Pill color={card.color||C.card_color} small><CreditCard size={9}/> {card.name}</Pill>:null;})()}
+                          {tx.card_id&&(()=>{const card=(cards||[]).find(c=>c.id===tx.card_id);return card?<Pill color={card.color||C.card_color} small><CreditCard size={9}/> {card.name}</Pill>:null;})()}
                           {tx.user_id&&members?.[tx.user_id]&&<AuthorTag profile={members[tx.user_id]}/>}
                         </div>
                       </div>
@@ -1281,7 +1254,7 @@ function CompromisosScreen({ data, derived, actions, members }) {
                       <div style={{display:"flex",alignItems:"center",gap:6,marginBottom:6,flexWrap:"wrap"}}>
                         {c.date&&<span style={{fontSize:10,color:C.muted,fontFamily:FB}}>Desde {c.date}</span>}
                         {c.billing_day&&<Pill color={isDueToday?C.red:C.muted} small>{isDueToday?"⚠ Cobro hoy":"📅 Día "+c.billing_day}</Pill>}
-                        {c.card_id&&(()=>{const card=(cards||[]).find(x=>String(x.id)===String(c.card_id));return card?<Pill color={card.color||C.card_color} small><CreditCard size={9}/> {card.name}</Pill>:null;})()}
+                        {c.card_id&&(()=>{const card=(cards||[]).find(x=>x.id===c.card_id);return card?<Pill color={card.color||C.card_color} small><CreditCard size={9}/> {card.name}</Pill>:null;})()}
                         {c.user_id && members?.[c.user_id] && <AuthorTag profile={members[c.user_id]}/>}
                       </div>
                       {isD&&c.quotas>0&&(
@@ -2328,15 +2301,40 @@ export default function Sincopa() {
   const commitmentTotal = commitments.filter(c=>c.active!==false).reduce((s,c)=>s+(+c.monthly||0),0);
   const commitmentPct   = baseInc>0 ? Math.round(commitmentTotal/baseInc*100) : 0;
   const recNeeds        = recurring.filter(r=>r.active&&+r.amount>0).reduce((s,r)=>s+(+r.amount),0);
-  const txNeeds         = transactions.filter(t=>t.category==="needs").reduce((s,t)=>s+t.amount,0);
-  const txWants         = transactions.filter(t=>t.category==="wants").reduce((s,t)=>s+t.amount,0);
+  // Card purchases: only count when the cut date has PASSED (billing cycle closed)
+  // While in current cycle, they accumulate in the card but don't affect the budget yet
+  const today = new Date();
+  const cardDueThisMonth = cards.reduce((s, card) => {
+    if (!card.cut_day) return s;
+    // Purchases from PREVIOUS cycle (cut already passed this month) = due now
+    const thisCutDate = new Date(today.getFullYear(), today.getMonth(), card.cut_day);
+    const prevCutDate = new Date(today.getFullYear(), today.getMonth()-1, card.cut_day);
+    const purchases = card.purchases || [];
+    // Previous cycle = between the cut before last and last cut
+    const twoCutsAgo = new Date(today.getFullYear(), today.getMonth()-2, card.cut_day+1);
+    const lastCutStr = prevCutDate.toISOString().slice(0,10);
+    const twoCutsAgoStr = twoCutsAgo.toISOString().slice(0,10);
+    // If today is past the cut day, last cycle closed = from cut_day of prev month to cut_day of this month
+    const cutPassed = today.getDate() >= card.cut_day;
+    if (cutPassed) {
+      const cycleStart = new Date(today.getFullYear(), today.getMonth()-1, card.cut_day+1);
+      const cycleEnd = thisCutDate;
+      return s + purchases
+        .filter(p => p.date >= cycleStart.toISOString().slice(0,10) && p.date <= cycleEnd.toISOString().slice(0,10))
+        .reduce((a,p) => a+(+p.amount||0), 0);
+    }
+    return s;
+  }, 0);
+  // Transactions: exclude those paid with a card (they count only when card cycle closes)
+  const txNeeds         = transactions.filter(t=>t.category==="needs"&&!t.card_id).reduce((s,t)=>s+t.amount,0);
+  const txWants         = transactions.filter(t=>t.category==="wants"&&!t.card_id).reduce((s,t)=>s+t.amount,0);
   // Savings: extra deposits (+) and withdrawals (-) on top of the automatic budget
   const txSavingsExtra  = transactions.filter(t=>t.category==="savings").reduce((s,t)=>s+t.amount,0);
   const txSavingsOut    = transactions.filter(t=>t.category==="savings_out").reduce((s,t)=>s+t.amount,0);
   // Fourth: deposits and withdrawals — net shows how much of the fund you've used
   const txFourthIn      = transactions.filter(t=>t.category==="fourth").reduce((s,t)=>s+t.amount,0);
   const txFourthOut     = transactions.filter(t=>t.category==="fourth_out").reduce((s,t)=>s+t.amount,0);
-  const needsSpent      = recNeeds + txNeeds;
+  const needsSpent      = recNeeds + txNeeds + cardDueThisMonth;
   const wantsSpent      = txWants + commitmentTotal;
   // savingsExtra: net manual movements on top of automatic savings
   const savingsExtra    = txSavingsExtra - txSavingsOut;
