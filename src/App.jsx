@@ -765,6 +765,9 @@ function GastosScreen({ data, derived, actions, members, myProfile }) {
   const [nSav,setNSav]=useState({name:"",amount:""});
   const wantsOnly = wantsSpent - commitmentTotal;
   const isRoomies = householdType === "roomies";
+  // Only admins (and individuals) can add/edit data in shared households
+  const myRole = myProfile?.role;
+  const isReadOnly = (householdType === "pareja" || householdType === "roomies") && myRole === "member";
   const autoCatName = n => {
     const l=n.toLowerCase();
     if(NEEDS_KW.some(k=>l.includes(k))) return "needs";
@@ -819,8 +822,14 @@ function GastosScreen({ data, derived, actions, members, myProfile }) {
       {/* GASTOS TAB */}
       {tab==="gastos" && (
         <div>
-          {/* Unified entry form */}
-          <Card style={{marginBottom:14,padding:16}}>
+          {/* Read-only notice for non-admin members */}
+          {isReadOnly && (
+            <div style={{background:C.yellow+"18",border:`1px solid ${C.yellow}40`,borderRadius:12,padding:"10px 14px",marginBottom:12,fontSize:12,color:"#92650a",fontFamily:FB}}>
+              👁 Solo lectura — solo el administrador puede agregar gastos
+            </div>
+          )}
+          {/* Unified entry form — hidden for read-only */}
+          {!isReadOnly && (<Card style={{marginBottom:14,padding:16}}>
             {/* Quick templates */}
             <button onClick={()=>setShowQuick(p=>!p)} style={{border:`1.5px solid ${C.border}`,borderRadius:10,background:"transparent",color:C.muted,fontFamily:FB,fontSize:11,fontWeight:600,padding:"5px 12px",cursor:"pointer",marginBottom:10,display:"flex",alignItems:"center",gap:5}}>
               ⚡ Plantillas {showQuick?"▲":"▼"}
@@ -878,6 +887,7 @@ function GastosScreen({ data, derived, actions, members, myProfile }) {
               );
             })()}
           </Card>
+          )} {/* end !isReadOnly */}
 
           {/* Recurring items */}
           {recurring.length>0&&(
@@ -906,8 +916,8 @@ function GastosScreen({ data, derived, actions, members, myProfile }) {
                         <button onClick={()=>actions.toggleRec(r.id)} style={{border:`1.5px solid ${r.active?C.needs:C.border}`,borderRadius:8,background:r.active?C.needs+"15":"transparent",color:r.active?C.needs:C.muted,fontFamily:FB,fontSize:11,fontWeight:600,padding:"4px 10px",cursor:"pointer"}}>{r.active?"ON":"OFF"}</button>
                         <div style={{fontFamily:FM,fontSize:14,fontWeight:700,color:r.active?C.ink:C.muted}}>{fmt(r.amount)}</div>
                         <div style={{display:"flex",gap:4}}>
-                          <button onClick={()=>{setEditRId(r.id);setEditR({icon:r.icon,label:r.label,amount:r.amount});}} style={{border:`1.5px solid ${C.border}`,borderRadius:8,background:"transparent",padding:6,cursor:"pointer",display:"flex"}}><Pencil size={12} color={C.muted}/></button>
-                          <button onClick={()=>actions.delRec(r.id)} style={{border:`1.5px solid ${C.border}`,borderRadius:8,background:"transparent",padding:6,cursor:"pointer",display:"flex"}}><Trash2 size={12} color={C.red}/></button>
+                          {!isReadOnly&&<button onClick={()=>{setEditRId(r.id);setEditR({icon:r.icon,label:r.label,amount:r.amount});}} style={{border:`1.5px solid ${C.border}`,borderRadius:8,background:"transparent",padding:6,cursor:"pointer",display:"flex"}}><Pencil size={12} color={C.muted}/></button>}
+                          {!isReadOnly&&<button onClick={()=>actions.delRec(r.id)} style={{border:`1.5px solid ${C.border}`,borderRadius:8,background:"transparent",padding:6,cursor:"pointer",display:"flex"}}><Trash2 size={12} color={C.red}/></button>}
                         </div>
                       </div>
                       <div style={{paddingTop:8,borderTop:`1px solid ${C.border}`,marginTop:8}}>
@@ -949,10 +959,10 @@ function GastosScreen({ data, derived, actions, members, myProfile }) {
                         </div>
                       </div>
                       <div style={{fontFamily:FM,fontSize:15,fontWeight:700,color:C.ink}}>-{fmt(tx.amount)}</div>
-                      <div style={{display:"flex",gap:4}}>
+                      {!isReadOnly&&<div style={{display:"flex",gap:4}}>
                         <button onClick={()=>{setEditTId(tx.id);setEditT({name:tx.name,amount:tx.amount,category:tx.category});}} style={{border:`1.5px solid ${C.border}`,borderRadius:8,background:"transparent",padding:6,cursor:"pointer",display:"flex"}}><Pencil size={12} color={C.muted}/></button>
                         <button onClick={()=>actions.delTx(tx.id)} style={{border:`1.5px solid ${C.border}`,borderRadius:8,background:"transparent",padding:6,cursor:"pointer",display:"flex"}}><Trash2 size={12} color={C.red}/></button>
-                      </div>
+                      </div>}
                     </div>
                   )}
                 </Card>
@@ -1169,7 +1179,7 @@ function GastosScreen({ data, derived, actions, members, myProfile }) {
 } 
 
 // ═══════════════ COMPROMISOS SCREEN ══════════════════════════════════════════
-function CompromisosScreen({ data, derived, actions, members }) {
+function CompromisosScreen({ data, derived, actions, members, myProfile }) {
   const { commitments, cards } = data;
   const { commitmentTotal, baseInc } = derived;
   const [showForm,setShowForm]=useState(false);
@@ -1178,6 +1188,9 @@ function CompromisosScreen({ data, derived, actions, members }) {
   const today = new Date().getDate();
   const groups = [{label:"Suscripciones",icon:"🔄",type:"subscription"},{label:"Diferidos",icon:"💳",type:"deferred"},{label:"Préstamos",icon:"🏦",type:"loan"}];
   const dueToday = commitments.filter(c=>c.billing_day===today&&!(c.payments||[]).some(p=>p.date===todayStr()));
+  const myRole = myProfile?.role;
+  const householdType = derived.householdType;
+  const isReadOnly = (householdType === "pareja" || householdType === "roomies") && myRole === "member";
 
   // Card cycle totals for summary
   function cardCycleTotal(card) {
@@ -1199,7 +1212,7 @@ function CompromisosScreen({ data, derived, actions, members }) {
           <div style={{fontFamily:FD,fontSize:24,fontWeight:800,color:C.ink}}>Compromisos</div>
           <div style={{fontSize:12,color:C.muted,fontFamily:FB}}>Suscripciones · Diferidos · Préstamos</div>
         </div>
-        <Btn onClick={()=>{setEditing(null);setShowForm(true);}} color={C.commit}>+ Nuevo</Btn>
+        <Btn onClick={()=>{setEditing(null);setShowForm(true);}} color={C.commit} disabled={isReadOnly}>+ Nuevo</Btn>
       </div>
 
       {/* Cards summary in compromisos */}
@@ -1302,8 +1315,8 @@ function CompromisosScreen({ data, derived, actions, members }) {
                     </div>
                   </div>
                   <div style={{display:"flex",justifyContent:"flex-end",gap:8,marginTop:10,paddingTop:10,borderTop:`1px solid ${C.border}`}}>
-                    <button onClick={()=>{setEditing(c);setShowForm(true);}} style={{border:`1.5px solid ${C.border}`,borderRadius:10,background:"transparent",padding:"7px 14px",cursor:"pointer",fontFamily:FB,fontSize:12,color:C.muted,display:"flex",alignItems:"center",gap:5}}><Pencil size={12}/> Editar</button>
-                    <button onClick={()=>actions.delCommitment(c.id)} style={{border:`1.5px solid ${C.red}25`,borderRadius:10,background:C.red+"08",padding:"7px 14px",cursor:"pointer",fontFamily:FB,fontSize:12,color:C.red,display:"flex",alignItems:"center",gap:5}}><Trash2 size={12}/> Eliminar</button>
+                    {!isReadOnly&&<button onClick={()=>{setEditing(c);setShowForm(true);}} style={{border:`1.5px solid ${C.border}`,borderRadius:10,background:"transparent",padding:"7px 14px",cursor:"pointer",fontFamily:FB,fontSize:12,color:C.muted,display:"flex",alignItems:"center",gap:5}}><Pencil size={12}/> Editar</button>}
+                    {!isReadOnly&&<button onClick={()=>actions.delCommitment(c.id)} style={{border:`1.5px solid ${C.red}25`,borderRadius:10,background:C.red+"08",padding:"7px 14px",cursor:"pointer",fontFamily:FB,fontSize:12,color:C.red,display:"flex",alignItems:"center",gap:5}}><Trash2 size={12}/> Eliminar</button>}
                   </div>
                 </Card>
               );
@@ -2439,9 +2452,13 @@ export default function Sincopa() {
     },
     addRec: async r => {
       if (!r.label) return;
-      const row = { id: Date.now(), household_id: household.id, icon:r.icon||"📋", label:r.label, amount:+r.amount||0, category:"needs", active:true, date:todayStr(), payments:[], user_id:uid() };
-      setRecurring(p=>[...p,row]);
-      await SB.from("recurring").insert(row);
+      const rowData = { household_id: household.id, icon:r.icon||"📋", label:r.label, amount:+r.amount||0, category:r.category||"needs", active:true, date:todayStr(), payments:[], user_id:uid(), for_house:r.for_house??true, card_id:r.card_id||null };
+      const { data: inserted } = await SB.from("recurring").insert(rowData).select();
+      if (inserted?.[0]) {
+        setRecurring(p=>[...p, inserted[0]]);
+      } else {
+        setRecurring(p=>[...p, { id: Date.now(), ...rowData }]);
+      }
     },
     addFromTpl: async tpl => {
       const row = { id: Date.now(), household_id: household.id, icon:tpl.icon, label:tpl.label, amount:0, category:"needs", active:true, date:todayStr(), payments:[], user_id:uid() };
@@ -2468,9 +2485,13 @@ export default function Sincopa() {
     addTx: async (tx, cat, reset) => {
       if (!tx.name||!tx.amount) return;
       const category = cat==="savings"?"savings":cat==="savings_out"?"savings_out":cat==="fourth"?"fourth":cat==="fourth_out"?"fourth_out":cat==="auto"?autoCat(tx.name):cat;
-      const row = { id: Date.now(), household_id: household.id, name:tx.name, amount:+tx.amount, category, date:todayStr(), user_id:uid() };
-      setTransactions(p=>[...p,row]);
-      await SB.from("transactions").insert(row);
+      const rowData = { household_id: household.id, name:tx.name, amount:+tx.amount, category, date:todayStr(), user_id:uid(), for_house: tx.for_house ?? true };
+      const { data: inserted } = await SB.from("transactions").insert(rowData).select();
+      if (inserted?.[0]) {
+        setTransactions(p=>[...p, inserted[0]]);
+      } else {
+        setTransactions(p=>[...p, { id: Date.now(), ...rowData }]);
+      }
       if(reset) reset({name:"",amount:""});
     },
     delTx: async id => {
@@ -2482,14 +2503,23 @@ export default function Sincopa() {
       await SB.from("transactions").update({ name:ed.name, amount:+ed.amount, category:ed.category }).eq("id", id);
     },
     addCommitment: async c => {
-      const row = { ...c, household_id: household.id, user_id: uid() };
       const ex = commitments.find(x=>x.id===c.id);
       if (ex) {
+        // UPDATE existing
+        const row = { ...c, household_id: household.id, user_id: uid() };
         setCommitments(p=>p.map(x=>x.id===c.id?row:x));
-        await SB.from("commitments").update(row).eq("id", c.id);
+        const { id: _id, ...rowWithoutId } = row;
+        await SB.from("commitments").update(rowWithoutId).eq("id", c.id);
       } else {
-        setCommitments(p=>[...p,row]);
-        await SB.from("commitments").insert(row);
+        // INSERT — let Supabase generate the id
+        const { id: _drop, ...rowWithoutId } = { ...c, household_id: household.id, user_id: uid() };
+        const { data: inserted } = await SB.from("commitments").insert(rowWithoutId).select();
+        if (inserted?.[0]) {
+          setCommitments(p=>[...p, inserted[0]]);
+        } else {
+          // fallback: add locally with client id
+          setCommitments(p=>[...p, { ...c, household_id: household.id, user_id: uid() }]);
+        }
       }
     },
     delCommitment: async id => {
@@ -2618,7 +2648,7 @@ export default function Sincopa() {
       <div style={{paddingBottom:80}}>
         {tab==="home"        && <HomeScreen        derived={derived} members={members} cards={data.cards} onHistory={()=>setShowHistory(true)} onEmergency={()=>setShowEmergency(true)}/>}
         {tab==="gastos"      && <GastosScreen      data={data} derived={derived} actions={actions} members={members} myProfile={myProfile}/>}
-        {tab==="compromisos" && <CompromisosScreen data={data} derived={derived} actions={actions} members={members}/>}
+        {tab==="compromisos" && <CompromisosScreen data={data} derived={derived} actions={actions} members={members} myProfile={myProfile}/>}
         {tab==="hogar"       && <HogarScreen       data={data} derived={derived} actions={actions} members={members} session={session} household={household}/>}
         {tab==="config"      && <ConfigScreen      data={data} actions={actions} session={session} household={household} members={members} onSignOut={handleSignOut} derived={derived}/>}
       </div>
