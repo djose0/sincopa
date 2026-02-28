@@ -48,7 +48,7 @@ const NEEDS_KW  = ["renta","rent","alquiler","luz","agua","gas","internet","segu
 const WANTS_KW  = ["pizza","restaurante","café","bar","netflix","spotify","ropa","viaje","hotel","concierto","cine","juego","amazon","uber","rappi","mall","shopping","vacaciones","gym","entretenimiento","copa","cerveza"];
 const autoCat = n => {
   const l = n.toLowerCase();
-  return NEEDS_KW.some(k=>l.includes(k)) ? "needs" : WANTS_KW.some(k=>l.includes(k)) ? "wants" : "savings";
+  return NEEDS_KW.some(k=>l.includes(k)) ? "needs" : "wants";
 };
 
 const QUICK_NEEDS = [
@@ -170,14 +170,14 @@ function ProgressBar({ value, max, color, height=8 }) {
 }
 
 // ─── INPUT FIELD ─────────────────────────────────────────────────────────────
-function Field({ label, value, onChange, type="text", placeholder, prefix, suffix, style={} }) {
+function Field({ label, value, onChange, onKeyDown, type="text", placeholder, prefix, suffix, style={} }) {
   return (
     <div style={{ display:"flex", flexDirection:"column", gap:5, ...style }}>
       {label && <label style={{ fontSize:11, fontWeight:600, color:C.muted, textTransform:"uppercase", letterSpacing:0.8, fontFamily:FONT_BODY }}>{label}</label>}
       <div style={{ position:"relative", display:"flex", alignItems:"center" }}>
         {prefix && <span style={{ position:"absolute", left:12, fontSize:14, color:C.muted, fontFamily:FONT_MONO, pointerEvents:"none" }}>{prefix}</span>}
         <input
-          type={type} value={value} onChange={onChange} placeholder={placeholder}
+          type={type} value={value} onChange={onChange} onKeyDown={onKeyDown} placeholder={placeholder}
           style={{
             width:"100%", border:`1.5px solid ${C.border}`,
             borderRadius:12, background:C.bg,
@@ -618,7 +618,7 @@ function GastosScreen({ data, derived, actions }) {
   const [editTx, setEditTx] = useState({});
   const [showRecForm, setShowRecForm] = useState(false);
   const [showQuick, setShowQuick] = useState(false);
-  const [newRec, setNewRec] = useState({ icon:"📋", label:"", amount:"" });
+  const [newRec, setNewRec] = useState({ icon:"📋", label:"", amount:"", category:"needs" });
   const [editRecId, setEditRecId] = useState(null);
   const [editRec, setEditRec] = useState({});
   const [tab, setTab] = useState("recurrentes");
@@ -694,7 +694,19 @@ function GastosScreen({ data, derived, actions }) {
                   <Field placeholder="Nombre del gasto" value={newRec.label} onChange={e=>setNewRec(p=>({...p,label:e.target.value}))}/>
                   <Field type="number" placeholder="$" prefix="$" value={newRec.amount} onChange={e=>setNewRec(p=>({...p,amount:e.target.value}))}/>
                 </div>
-                <Btn onClick={()=>{ actions.addRec(newRec); setNewRec({icon:"📋",label:"",amount:""}); setShowRecForm(false); }} color={C.needs}>Agregar necesidad</Btn>
+                <div style={{ display:"flex",gap:8 }}>
+                  {[{val:"needs",label:"Necesidad",color:C.needs},{val:"wants",label:"Deseo",color:C.wants}].map(opt=>(
+                    <button key={opt.val} onClick={()=>setNewRec(p=>({...p,category:opt.val}))} style={{
+                      flex:1,border:`1.5px solid ${newRec.category===opt.val?opt.color:C.border}`,
+                      borderRadius:10,background:newRec.category===opt.val?`${opt.color}15`:"transparent",
+                      color:newRec.category===opt.val?opt.color:C.muted,
+                      fontFamily:FONT_BODY,fontSize:12,fontWeight:600,padding:"8px 0",cursor:"pointer",
+                    }}>{opt.label}</button>
+                  ))}
+                </div>
+                <Btn onClick={()=>{ actions.addRec(newRec); setNewRec({icon:"📋",label:"",amount:"",category:"needs"}); setShowRecForm(false); }} color={newRec.category==="wants"?C.wants:C.needs}>
+                  {newRec.category==="wants"?"Agregar deseo":"Agregar necesidad"}
+                </Btn>
               </div>
             </Card>
           )}
@@ -713,7 +725,7 @@ function GastosScreen({ data, derived, actions }) {
                   <span style={{ fontSize:20 }}>{r.icon}</span>
                   <div style={{ flex:1 }}>
                     <div style={{ fontSize:14,fontWeight:600,color:C.ink,fontFamily:FONT_BODY }}>{r.label}</div>
-                    <Pill color={C.needs} small>Necesidad</Pill>
+                    <Pill color={r.category==="wants"?C.wants:C.needs} small>{r.category==="wants"?"Deseo":"Necesidad"}</Pill>
                   </div>
                   <button onClick={()=>actions.toggleRec(r.id)} style={{
                     border:`1.5px solid ${r.active?C.needs:C.border}`,
@@ -1081,8 +1093,8 @@ export default function Sincopa() {
       if(d.transactions)          setTransactions(d.transactions);
       if(d.commitments)           setCommitments(d.commitments);
       if(d.history)               setHistory(d.history);
-      if(d.totalSavingsAccum)     setTotalSavingsAccum(d.totalSavingsAccum);
-      if(d.withdrawn)             setWithdrawn(d.withdrawn);
+      if(d.totalSavingsAccum !== undefined) setTotalSavingsAccum(d.totalSavingsAccum);
+      if(d.withdrawn !== undefined)         setWithdrawn(d.withdrawn);
       if(d.currentYear)           setCurrentYear(d.currentYear);
       if(d.currentMonth)          setCurrentMonth(d.currentMonth);
     }
@@ -1142,7 +1154,7 @@ export default function Sincopa() {
     toggleRec: id=>setRecurring(p=>p.map(r=>r.id===id?{...r,active:!r.active}:r)),
     delRec: id=>setRecurring(p=>p.filter(r=>r.id!==id)),
     saveRec:(id,ed)=>setRecurring(p=>p.map(r=>r.id===id?{...r,...ed,amount:+ed.amount}:r)),
-    addRec: r=>{ if(!r.label) return; setRecurring(p=>[...p,{id:Date.now(),icon:r.icon||"📋",label:r.label,amount:+r.amount||0,category:"needs",active:true}]); },
+    addRec: r=>{ if(!r.label) return; setRecurring(p=>[...p,{id:Date.now(),icon:r.icon||"📋",label:r.label,amount:+r.amount||0,category:r.category||"needs",active:true}]); },
     addFromTpl: tpl=>setRecurring(p=>[...p,{id:Date.now(),icon:tpl.icon,label:tpl.label,amount:0,category:"needs",active:true}]),
     addTx:(tx,reset)=>{ if(!tx.name||!tx.amount) return; setTransactions(p=>[...p,{id:Date.now(),name:tx.name,amount:+tx.amount,category:autoCat(tx.name),date:new Date().toLocaleDateString("es-MX",{month:"short",day:"2-digit"})}]); reset({name:"",amount:""}); },
     delTx: id=>setTransactions(p=>p.filter(t=>t.id!==id)),
